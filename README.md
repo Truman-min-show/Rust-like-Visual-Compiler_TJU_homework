@@ -122,7 +122,8 @@ python gui.py
 
 ---
 
-## 项目的其他两位成员
+## 项目成员
 
+- [Truman-min-show](https://github.com/Truman-min-show)
 - [limeszstone](https://github.com/limeszstone)
 - [TheTry16](https://github.com/TheTry16)
