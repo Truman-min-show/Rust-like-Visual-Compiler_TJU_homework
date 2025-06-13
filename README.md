@@ -39,9 +39,9 @@
 #### **1\. 环境配置**
 
 首先，克隆或下载本仓库至本地。然后进入项目根目录，通过以下命令安装所需的依赖库：
-
+'''
 pip install \-r requirements.txt
-
+'''
 #### **2\. 运行程序**
 
 本项目依赖 **Graphviz** 进行AST的可视化。我们已将Windows版本的Graphviz二进制文件打包在graphviz\_bin目录中。
