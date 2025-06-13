@@ -116,3 +116,9 @@ python gui.py
     * **语义分析**: 基于访问者模式的单遍深度优先遍历。
     * **中间代码**: 生成四元式。
 
+---
+
+## 项目的其他两位成员
+
+- [limeszstone](https://github.com/limeszstone)
+- [TheTry16](https://github.com/TheTry16)
