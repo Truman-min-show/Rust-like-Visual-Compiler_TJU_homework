@@ -115,6 +115,18 @@ python gui.py
     * **语法分析**: 自上而下的混合解析策略（递归下降 + Pratt解析器）。
     * **语义分析**: 基于访问者模式的单遍深度优先遍历。
     * **中间代码**: 生成四元式。
+---
+
+## 💻 下载可执行程序 (Download)
+
+我们已经将编译器打包为Windows可执行文件，方便直接运行。
+
+1.  请前往本项目的 **[Releases页面](https://github.com/Truman-min-show/Rust-like-Visual-Compiler_TJU_homework/releases)**。 
+2.  在最新版本中，下载名为 `Rust-Compiler-v1.0-win64.zip` 的压缩文件。
+3.  解压下载的 `.zip` 文件。
+4.  双击运行 `Rust-Compiler.exe` 即可启动程序。
+
+**注意**: 请确保解压后的 `graphviz_bin` 文件夹与 `.exe` 文件位于同一目录下。
 
 ---
 
