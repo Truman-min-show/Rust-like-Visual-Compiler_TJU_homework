@@ -286,14 +286,14 @@ fn main() -> i32 {
         semantic_button = tk.Button(left_frame, text="3. 进行语义分析与四元式生成",command=self.perform_semantic_analysis_and_ir, font=default_font, pady=5)
         semantic_button.pack(pady=(2, 1), fill=tk.X)
 
-        ast_button = tk.Button(left_frame, text="4. 生成 AST 图像", command=self.show_ast, font=default_font, pady=5)
-        ast_button.pack(pady=(2, 1), fill=tk.X)
-
-        asm_button = tk.Button(left_frame, text="5. 生成汇编代码", command=self.perform_assembly_generation,font=default_font, pady=5)
+        asm_button = tk.Button(left_frame, text="4. 生成汇编代码", command=self.perform_assembly_generation,font=default_font, pady=5)
         asm_button.pack(pady=(2, 1), fill=tk.X)
 
-        run_button = tk.Button(left_frame, text="6. 汇编、链接并运行", command=self.assemble_link_and_run,font=default_font, pady=5)
+        run_button = tk.Button(left_frame, text="5. 汇编、链接并运行", command=self.assemble_link_and_run,font=default_font, pady=5)
         run_button.pack(pady=(2, 1), fill=tk.X)
+
+        ast_button = tk.Button(left_frame, text="6. 生成 AST 图像", command=self.show_ast, font=default_font, pady=5)
+        ast_button.pack(pady=(2, 1), fill=tk.X)
 
         right_notebook = ttk.Notebook(self.m)
         self.m.add(right_notebook, width=550)
@@ -342,7 +342,7 @@ fn main() -> i32 {
         hsb.pack(side="bottom", fill="x")
         self.ir_table.pack(fill=tk.BOTH, expand=True)
 
-        # --- 新增汇编代码 Tab ---
+        #---汇编代码---
         self.symbol_table_for_analysis = None
         assembly_tab = tk.Frame(right_notebook)
         right_notebook.add(assembly_tab, text='汇编代码')
@@ -350,7 +350,10 @@ fn main() -> i32 {
         assembly_label = tk.Label(assembly_tab, text="x86-64 汇编代码 (NASM 语法):", font=default_font)
         assembly_label.pack(pady=(5, 5), fill=tk.X, padx=5)
         # 2. 使用您已有的方法创建可滚动的文本框
-        self.assembly_text = self.create_scrollable_text(assembly_tab,height=22, font=text_font, wrap=tk.NONE)
+        self.assembly_text = self.create_scrollable_text(assembly_tab,height=20, font=text_font, wrap=tk.NONE)
+
+        assembly_output_label = tk.Label(assembly_tab, text="链接WSL汇编并执行:", font=default_font)
+        assembly_output_label.pack(pady=(5, 5), fill=tk.X, padx=5)
         self.run_output_text = self.create_scrollable_text(assembly_tab, font=text_font)
 
         # AST 图像 Tab
@@ -640,12 +643,12 @@ fn main() -> i32 {
             #run_proc = subprocess.run(["wsl", exe_path_wsl], capture_output=True, text=True, encoding='utf-8')
             # Run in binary mode, then decode manually
             run_proc = subprocess.run(["wsl", exe_path_wsl], capture_output=True)
-            run_stdout = run_proc.stdout.decode('utf-8', errors='replace')
-            run_stderr = run_proc.stderr.decode('utf-8', errors='replace')
+            run_stdout = run_proc.stdout.decode('UTF-16LE', errors='replace')
+            run_stderr = run_proc.stderr.decode('UTF-16LE', errors='replace')
 
             if run_proc.stdout:
                 self.run_output_text.insert(tk.END, f"标准输出:\n{run_stdout}\n")
-            if run_proc.stderr and run_proc.stderr!="":
+            if run_proc.stderr and run_proc.stderr!=b'w\x00s\x00l\x00:\x00 \x00\xc0hKm0R \x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00 \x00\xe3N\x06tM\x91n\x7f\x0c\xffFO*g\\\x95\xcfP0R \x00W\x00S\x00L\x00\x020N\x00A\x00T\x00 \x00!j\x0f_\x0bN\x84v \x00W\x00S\x00L\x00 \x00\rN/e\x01c \x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00 \x00\xe3N\x06t\x020\r\x00\n\x00':
                 self.run_output_text.insert(tk.END, f"标准错误:\n{run_stderr}\n")
 
             self.run_output_text.insert(tk.END, f"--- 结果 ---\n程序退出码: {run_proc.returncode}\n")
