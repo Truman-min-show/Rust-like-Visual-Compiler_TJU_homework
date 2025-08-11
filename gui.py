@@ -5,16 +5,17 @@ import io
 from graphviz import Digraph
 from PIL import Image, ImageTk
 import subprocess
-import os # 保持 os 如果用于文件路径，尽管这里没有直接使用
+import os 
+from datetime import datetime
 
 try:
     from token_defs import TokenType, Token
     from lexer import Lexer
     from parser import Parser
     from ast_printer import ASTPrinter
-    # --- 新增导入 ---
     from symbol_table import SymbolTable, Type, FunctionType, TYPE_I32, TYPE_BOOL, TYPE_VOID, TYPE_UNKNOWN, TYPE_ERROR
     from semantic_analyzer import SemanticAnalyzer
+    from assembly_generator import AssemblyGenerator
     from ir_generator import IRGenerator, Quadruple, IRValue # 假设 Quadruple 和 IRValue 在 ir_generator.py 中
 except ImportError as e:
     print(f"错误：无法导入所需模块: {e}")
@@ -155,6 +156,14 @@ class ASTGraphvizDrawer:
         if body_node: self.graph.edge(while_node, body_node, label="body")
         return while_node
     
+    def visit_for_statement(self, node):
+        for_node = self.add_node(f"For: {node.variable.value}")
+        iterator_node = node.iterator.accept(self)
+        if iterator_node: self.graph.edge(for_node, iterator_node, label="in")
+        body_node = node.body.accept(self)
+        if body_node: self.graph.edge(for_node, body_node, label="body")
+        return for_node
+    
     def visit_assignment_statement(self, node):
         assign_node = self.add_node("Assign")
         target_node = node.target.accept(self)
@@ -212,7 +221,7 @@ class ASTGraphvizDrawer:
 class LexerApp:
     def __init__(self, master):
         self.master = master
-        master.title("类 Rust 词法/语法/语义分析器 + 四元式/AST生成器") # 更新标题
+        master.title("Rust 编译器 (词法/语法/语义分析 + IR/汇编生成 + 自动链接wsl执行/AST图像生成)") # 更新标题
         master.geometry("1000x700")
 
         default_font = tkFont.nametofont("TkDefaultFont")
@@ -243,48 +252,46 @@ class LexerApp:
         input_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
         input_scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.input_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.input_text.insert(tk.END,
-        """//输入rust代码
-fn factorial(n: i32) -> i32 {
-    let mut result: i32 = 1;
-    let mut i: i32 = 1;
-    while i <= n { // 语义: i <= n 的结果是布尔型
-        result = result * i;
-        i = i + 1;
-    }
-    return result;
-}
 
-fn main() {
-    let x: i32 = 5;
-    let mut fact_x: i32;
-    fact_x = factorial(x); // 函数调用
-    if x >= 1 { // 语义: x >= 1 的结果是布尔型
-        let internal_var: i32 = 100;
-        loop { 
-            // fact_x = internal_var; // 测试作用域和赋值
-            break; 
-        }
-    }
-    // 示例错误
-    // let err1: i32 = "hello"; // 类型不匹配
-    // undeclared = 10;          // 未声明变量
-    // let err2: i32 = x + true;  // 算术运算类型错误
-    // factorial(true);          // 函数调用参数类型错误
-}
-    """)
+        try:
+            # os.path.dirname(__file__) 获取当前脚本(gui.py)所在的目录
+            # os.path.join 构造跨平台的路径
+            rs_file_path = os.path.join(os.path.dirname(__file__), "test.rs")
+            with open(rs_file_path, "r", encoding="utf-8") as f:
+                rust_code = f.read()
+            self.input_text.insert(tk.END, rust_code)
+        except FileNotFoundError:
+            # 如果文件不存在，显示错误信息
+            error_message = f"错误: 未在程序目录中找到 'test.rs' 文件。\n请创建一个 test.rs 文件并放入示例代码。"
+            self.input_text.insert(tk.END, error_message)
+            messagebox.showerror("文件未找到", error_message)
+        except Exception as e:
+            # 处理其他可能的读取错误
+            error_message = f"读取 'test.rs' 时发生错误: {e}"
+            self.input_text.insert(tk.END, error_message)
+            messagebox.showerror("文件读取错误", error_message)
+
+        
         # 按钮顺序已调整，并添加了语义分析按钮
         lex_button = tk.Button(left_frame, text="1. 进行词法分析", command=self.analyze_code, font=default_font, pady=5)
-        lex_button.pack(pady=(10,2), fill=tk.X)
+        lex_button.pack(pady=(2,1), fill=tk.X)
         
         parse_button = tk.Button(left_frame, text="2. 进行语法分析", command=self.parse_syntax, font=default_font, pady=5)
-        parse_button.pack(pady=(2, 2), fill=tk.X)
+        parse_button.pack(pady=(2, 1), fill=tk.X)
         
         semantic_button = tk.Button(left_frame, text="3. 进行语义分析与四元式生成", command=self.perform_semantic_analysis_and_ir, font=default_font, pady=5)
-        semantic_button.pack(pady=(2, 2), fill=tk.X)
+        semantic_button.pack(pady=(2, 1), fill=tk.X)
+
+        asm_button = tk.Button(left_frame, text="4. 生成汇编代码", command=self.perform_assembly_generation,font=default_font, pady=5)
+        asm_button.pack(pady=(2, 1), fill=tk.X)
+
+        run_button = tk.Button(left_frame, text="5. 汇编、链接并运行", command=self.assemble_link_and_run,font=default_font, pady=5)
+        run_button.pack(pady=(2, 1), fill=tk.X)
         
-        ast_button = tk.Button(left_frame, text="4. 生成 AST 图像", command=self.show_ast, font=default_font, pady=5)
-        ast_button.pack(pady=(2, 5), fill=tk.X)
+        ast_button = tk.Button(left_frame, text="6. 生成 AST 图像", command=self.show_ast, font=default_font, pady=5)
+        ast_button.pack(pady=(2, 1), fill=tk.X)
+
+
 
 
         right_notebook = ttk.Notebook(self.m)
@@ -333,6 +340,20 @@ fn main() {
         vsb.pack(side="right", fill="y")
         hsb.pack(side="bottom", fill="x")
         self.ir_table.pack(fill=tk.BOTH, expand=True)
+
+        # --- 新增汇编代码 Tab ---
+        self.symbol_table_for_analysis = None
+        assembly_tab = tk.Frame(right_notebook)
+        right_notebook.add(assembly_tab, text='汇编代码')
+        # 1. 创建一个独立的标签
+        assembly_label = tk.Label(assembly_tab, text="x86-64 汇编代码 (NASM 语法):", font=default_font)
+        assembly_label.pack(pady=(5, 5), fill=tk.X, padx=5)
+        # 2. 使用您已有的方法创建可滚动的文本框
+        self.assembly_text = self.create_scrollable_text(assembly_tab, font=text_font, wrap=tk.NONE)
+
+        assembly_output_label = tk.Label(assembly_tab, text="链接WSL汇编并执行:", font=default_font)
+        assembly_output_label.pack(pady=(5, 5), fill=tk.X, padx=5)
+        self.run_output_text = self.create_scrollable_text(assembly_tab, font=text_font)
 
         # AST 图像 Tab
         ast_tab = tk.Frame(right_notebook)
@@ -476,12 +497,14 @@ fn main() {
                 semantic_errors = analyzer.get_errors() # 获取收集到的错误
                 if semantic_errors:
                     semantic_errors_found = True
+                    self.symbol_table_for_analysis = None  # 清除旧的
                     self.semantic_error_text.insert(tk.END, "语义分析检测到以下错误:\n" + "---------------------------\n")
                     for error in semantic_errors:
                         self.semantic_error_text.insert(tk.END, f"- {error}\n")
                     self.semantic_error_text.insert(tk.END, "---------------------------\n")
                     self.ir_table.insert('', 'end', values=('', '由于语义错误，未生成中间代码。\n'))
                 else:
+                    self.symbol_table_for_analysis = analyzer.symbol_table  # <<--- 保存符号表
                     self.semantic_error_text.insert(tk.END, "语义分析成功！未检测到语义错误。\n")
             
             except Exception as e_sem:
@@ -510,6 +533,134 @@ fn main() {
                     self.ir_table.insert('', 'end', values=('', traceback.format_exc()))
 
         self.semantic_error_text.config(state=tk.DISABLED)
+
+    def perform_assembly_generation(self):
+        self.assembly_text.config(state=tk.NORMAL)
+        self.assembly_text.delete("1.0", tk.END)
+
+        # 1. 检查前置步骤是否完成 (这部分保持不变)
+        if self.ast_root_for_analysis is None:
+            messagebox.showinfo("操作失败", "请先成功执行语法分析 (步骤 2)。")
+            self.assembly_text.insert(tk.END, "错误: 未找到有效的 AST。\n")
+            self.assembly_text.config(state=tk.DISABLED) # 别忘了在出错时禁用文本框
+            return # 增加 return
+        elif self.symbol_table_for_analysis is None:
+            messagebox.showinfo("操作失败", "请先成功执行语义分析 (步骤 3)。")
+            self.assembly_text.insert(tk.END, "错误: 未找到有效的符号表。请确保语义分析无误。\n")
+            self.assembly_text.config(state=tk.DISABLED) # 别忘了在出错时禁用文本框
+            return # 增加 return
+        
+        assembly_code = "" # 初始化为空字符串
+
+        # 2. 调用汇编生成器 (这部分保持不变)
+        try:
+            asm_gen = AssemblyGenerator(self.symbol_table_for_analysis)
+            asm_gen.visit_program(self.ast_root_for_analysis)
+            assembly_code = asm_gen.get_assembly() # 将结果存入变量
+
+            if assembly_code:
+                self.assembly_text.insert(tk.END, assembly_code)
+            else:
+                self.assembly_text.insert(tk.END, "未能生成汇编代码。\n")
+        except Exception as e:
+            error_message = f"生成汇编代码时发生意外错误: {e}\n"
+            import traceback
+            error_message += traceback.format_exc()
+            self.assembly_text.insert(tk.END, error_message)
+            assembly_code = "" # 发生错误时，确保 code 为空，不进行保存
+
+        self.assembly_text.config(state=tk.DISABLED)
+
+    def assemble_link_and_run(self):
+        # 清空之前的运行结果
+        self.run_output_text.config(state=tk.NORMAL)
+        self.run_output_text.delete("1.0", tk.END)
+
+        # 1. 获取汇编代码
+        asm_code = self.assembly_text.get("1.0", tk.END).strip()
+        if not asm_code or "未能生成汇编代码" in asm_code:
+            messagebox.showerror("错误", "没有可用的汇编代码。请先成功生成汇编代码。")
+            self.run_output_text.config(state=tk.DISABLED)
+            return
+
+        try:
+            # 2. 定义并创建输出目录
+            # os.path.dirname(__file__) 获取当前脚本(gui.py)所在的目录
+            base_dir = os.path.dirname(__file__)
+            output_dir = os.path.join(base_dir, "assembly_result")
+            os.makedirs(output_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
+
+            # 定义 Windows 平台下的文件路径
+            asm_path_win = os.path.join(output_dir, "output.asm")
+            obj_path_win = os.path.join(output_dir, "output.o")
+            exe_path_win = os.path.join(output_dir, "program")  # 在 WSL 中无 .exe 后缀
+
+            # 写入汇编文件
+            with open(asm_path_win, "w") as f:
+                f.write(asm_code)
+
+            # 3. 定义一个辅助函数来转换路径
+            def win_path_to_wsl(path):
+                path = path.replace('\\', '/')
+                drive, path_no_drive = os.path.splitdrive(path)
+                drive_letter = drive.replace(':', '').lower()
+                return f"/mnt/{drive_letter}{path_no_drive}"
+
+            # 4. 转换路径以在 WSL 中使用
+            asm_path_wsl = win_path_to_wsl(asm_path_win)
+            obj_path_wsl = win_path_to_wsl(obj_path_win)
+            exe_path_wsl = win_path_to_wsl(exe_path_win)
+
+            # 5. 构建并执行 WSL 命令
+            self.run_output_text.insert(tk.END, f"输出目录: {output_dir}\n\n")
+            self.run_output_text.insert(tk.END, "1. 正在通过 WSL 汇编 (NASM)...\n")
+
+            # 命令：wsl nasm -f elf64 -o /mnt/.../output.o /mnt/.../output.asm
+            nasm_cmd = ["wsl", "nasm", "-f", "elf64", "-o", obj_path_wsl, asm_path_wsl]
+            #nasm_proc = subprocess.run(nasm_cmd, capture_output=True, text=True, encoding='utf-8')
+            nasm_proc = subprocess.run(nasm_cmd, capture_output=True)
+            nasm_stderr = nasm_proc.stderr.decode('utf-8', errors='replace')
+
+            if nasm_proc.returncode != 0:
+                self.run_output_text.insert(tk.END, f"汇编失败！\nWSL 错误:\n{nasm_stderr}")
+                return
+
+            self.run_output_text.insert(tk.END, "2. 正在通过 WSL 链接 (GCC)...\n")
+            # 命令：wsl gcc -no-pie -o /mnt/.../program /mnt/.../output.o
+            gcc_cmd = ["wsl", "gcc", "-no-pie", "-o", exe_path_wsl, obj_path_wsl]
+            #gcc_proc = subprocess.run(gcc_cmd, capture_output=True, text=True, encoding='utf-8')
+            # Run in binary mode, then decode manually
+            gcc_proc = subprocess.run(gcc_cmd, capture_output=True)
+            gcc_stderr = gcc_proc.stderr.decode('utf-8', errors='replace')
+
+            if gcc_proc.returncode != 0:
+                self.run_output_text.insert(tk.END, f"链接失败！\nWSL 错误:\n{gcc_stderr}")
+                return
+
+            self.run_output_text.insert(tk.END, "3. 正在通过 WSL 运行程序...\n\n")
+            self.run_output_text.insert(tk.END, "--- 程序输出 ---\n")
+
+            # 运行可执行文件：wsl /mnt/.../program
+            #run_proc = subprocess.run(["wsl", exe_path_wsl], capture_output=True, text=True, encoding='utf-8')
+            # Run in binary mode, then decode manually
+            run_proc = subprocess.run(["wsl", exe_path_wsl], capture_output=True)
+            run_stdout = run_proc.stdout.decode('UTF-16LE', errors='replace')
+            run_stderr = run_proc.stderr.decode('UTF-16LE', errors='replace')
+
+            if run_proc.stdout:
+                self.run_output_text.insert(tk.END, f"标准输出:\n{run_stdout}\n")
+            if run_proc.stderr and run_proc.stderr!=b'w\x00s\x00l\x00:\x00 \x00\xc0hKm0R \x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00 \x00\xe3N\x06tM\x91n\x7f\x0c\xffFO*g\\\x95\xcfP0R \x00W\x00S\x00L\x00\x020N\x00A\x00T\x00 \x00!j\x0f_\x0bN\x84v \x00W\x00S\x00L\x00 \x00\rN/e\x01c \x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00 \x00\xe3N\x06t\x020\r\x00\n\x00':
+                self.run_output_text.insert(tk.END, f"标准错误:\n{run_stderr}\n")
+
+            self.run_output_text.insert(tk.END, f"--- 结果 ---\n程序退出码: {run_proc.returncode}\n")
+
+        except FileNotFoundError:
+            messagebox.showerror("命令未找到",
+                                 "无法执行 'wsl' 命令。请确保：\n1. WSL 已正确安装。\n2. 在 WSL 中已安装 nasm 和 gcc。\n3. Python 脚本有权限执行子进程。")
+        except Exception as e:
+            self.run_output_text.insert(tk.END, f"发生意外错误: {e}\n")
+        finally:
+            self.run_output_text.config(state=tk.DISABLED)
 
     def display_ast_image(self):
         if self.ast_image_original is None:

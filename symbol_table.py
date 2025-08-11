@@ -38,6 +38,23 @@ TYPE_VOID = Type("void")
 TYPE_UNKNOWN = Type("unknown")
 TYPE_ERROR = Type("error")
 
+class ReferenceType(Type):
+    def __init__(self, referenced_type: Type, is_mutable_ref: bool):
+        # 构建类型名称，如 &i32 或 &mut i32
+        ref_name = f"&{'mut ' if is_mutable_ref else ''}{str(referenced_type)}"
+        super().__init__(ref_name)
+        self.referenced_type = referenced_type
+        self.is_mutable_ref = is_mutable_ref
+
+    def __eq__(self, other):
+        if not isinstance(other, ReferenceType):
+            return False
+        return (self.referenced_type == other.referenced_type and
+                self.is_mutable_ref == other.is_mutable_ref)
+
+    def __repr__(self):
+        return f"ReferenceType(referenced_type={self.referenced_type!r}, is_mutable_ref={self.is_mutable_ref})"
+
 class Symbol:
     def __init__(self, name, sym_type: Type, kind: str, is_mutable: bool = False,
                  scope_level: int = 0, attributes=None, is_initialized: bool = False): # ADDED is_initialized

@@ -75,6 +75,18 @@ class WhileStatement(Statement):
     def accept(self, visitor):
         return visitor.visit_while_statement(self) # 需要添加 visit_while_statement 方法
 
+class ForStatement(Statement):
+    def __init__(self, token: Token, variable: 'Identifier', iterator: Expression, body: BlockStatement, mutable: bool = False, inclusive: bool = False):
+        super().__init__(token) # 'for' token
+        self.variable = variable # 循环变量 (Identifier node)
+        self.iterator = iterator # 迭代器表达式 (如 1..10)
+        self.body = body         # 循环体 (BlockStatement node)
+        self.mutable = mutable   # 变量是否可变 -- 新增
+        self.inclusive = inclusive # 范围是否是闭合的 (..) 还是 (..=) -- 新增
+
+    def accept(self, visitor):
+        return visitor.visit_for_statement(self)
+
 class LoopStatement(Statement):
     def __init__(self, token: Token, body: BlockStatement):
         super().__init__(token) # 'loop' token
@@ -250,7 +262,9 @@ class Visitor(ABC):
     def visit_infix_expression(self, node: InfixExpression): pass
     # Add methods for BooleanLiteral, CallExpression, TypeNode etc. if defined/needed
     def visit_type_node(self, node: TypeNode): pass # Basic pass for now
-
+    
+    @abstractmethod
+    def visit_for_statement(self, node: ForStatement): pass # --- ADDED ---
     @abstractmethod
     def visit_while_statement(self, node: WhileStatement): pass  # 添加 while 的抽象方法
     @abstractmethod

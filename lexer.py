@@ -151,7 +151,12 @@ class Lexer:
                      ch = self.ch
                      self._read_char() # 消耗第二个 '.'
                      literal = ch + self.ch
-                     tok = Token(TokenType.DOTDOT, literal, start_line, start_col)
+                     if self._peek_char() == '=': # '..='
+                         self._read_char() # 消耗第二个 '.'
+                         literal += self.ch
+                         tok = Token(TokenType.DOTDOT_EQ, literal, start_line, start_col)
+                     else: # '..'
+                         tok = Token(TokenType.DOTDOT, literal, start_line, start_col)
                  else: # '.'
                      tok = Token(TokenType.DOT, self.ch, start_line, start_col)
             case '(':

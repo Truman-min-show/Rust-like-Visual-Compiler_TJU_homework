@@ -9,12 +9,13 @@ from ast_nodes import * # Import all node classes and Visitor base
 LOWEST = 0
 EQUALS = 1         # ==, !=
 LESSGREATER = 2    # <, >, <=, >=
-SUM = 3            # +, -
-PRODUCT = 4        # *, /
-PREFIX = 5         # -X or !X (or &X, *X)
-CALL = 6           # myFunction(X)
-INDEX = 7          # array[index]
-ACCESS = 8         # tuple.0 or struct.field
+RANGE = 3
+SUM = 4            # +, -
+PRODUCT = 5        # *, /
+PREFIX = 6         # -X or !X (or &X, *X)
+CALL = 7           # myFunction(X)
+INDEX = 8          # array[index]
+ACCESS = 9         # tuple.0 or struct.field
 
 # Map token types to precedence levels
 PRECEDENCES = {
@@ -24,6 +25,8 @@ PRECEDENCES = {
     TokenType.GT: LESSGREATER,
     TokenType.LTE: LESSGREATER,
     TokenType.GTE: LESSGREATER,
+    TokenType.DOTDOT: RANGE,
+    TokenType.DOTDOT_EQ: RANGE,
     TokenType.PLUS: SUM,
     TokenType.MINUS: SUM,
     TokenType.SLASH: PRODUCT,
@@ -55,6 +58,7 @@ class Parser:
         self._next_token()
         self.prefix_parse_fns = {}
         self.infix_parse_fns = {}
+        self.register_infix(TokenType.DOTDOT, self._parse_infix_expression)
         self.register_prefix(TokenType.IDENT, self._parse_identifier)
         self.register_prefix(TokenType.INT, self._parse_integer_literal)
         self.register_prefix(TokenType.MINUS, self._parse_prefix_expression)
@@ -143,6 +147,8 @@ class Parser:
         elif self._current_token_is(TokenType.WHILE):
             # 处理 while 循环语句
             return self._parse_while_statement()
+        elif self._current_token_is(TokenType.FOR): # --- ADDED --- For
+            return self._parse_for_statement()      # --- ADDED ---
         elif self._current_token_is(TokenType.LOOP): 
             return self._parse_loop_statement()
         # --- 新增：处理以 Identifier 开头，可能是赋值语句或表达式语句 ---
@@ -182,7 +188,7 @@ class Parser:
         # print(f"DEBUG: _parse_statement: 结束") # Debugging
 
     def _parse_let_statement(self) -> LetStatement | None:
-        print(f"DEBUG: _parse_let_statement: 开始, current={self.current_token}")
+        #print(f"DEBUG: _parse_let_statement: 开始, current={self.current_token}")
         let_token = self.current_token  # 'let'
         is_mut = False
 
@@ -190,13 +196,13 @@ class Parser:
         if self._peek_token_is(TokenType.MUT):
             is_mut = True
             self._next_token()  # 消耗 let, current_token 现在是 'mut'
-            print(f"DEBUG: _parse_let_statement: 'mut' 之前, current={self.current_token}")
+            #print(f"DEBUG: _parse_let_statement: 'mut' 之前, current={self.current_token}")
             if not self._expect_peek(TokenType.IDENT): return None  # 消耗 'mut', current_token 现在是 IDENT
-            print(f"DEBUG: _parse_let_statement: 'mut' 之后, current={self.current_token} (应为 IDENT)")
+            #print(f"DEBUG: _parse_let_statement: 'mut' 之后, current={self.current_token} (应为 IDENT)")
         # 2. 处理 IDENT (如果 'mut' 不存在或已处理)
         elif self._peek_token_is(TokenType.IDENT):
             self._next_token()  # 消耗 'let', current_token 现在是 IDENT
-            print(f"DEBUG: _parse_let_statement: 'let' 之后, current={self.current_token} (应为 IDENT)")
+            #print(f"DEBUG: _parse_let_statement: 'let' 之后, current={self.current_token} (应为 IDENT)")
         else:
             self._peek_error(TokenType.IDENT)
             return None
@@ -204,53 +210,52 @@ class Parser:
         # current_token 现在是 IDENT
         name_ident_token = self.current_token
         name_node = Identifier(token=name_ident_token, value=name_ident_token.literal)
-        print(f"DEBUG: _parse_let_statement: 获得 IDENT '{name_node.value}', current={self.current_token}")
+        #print(f"DEBUG: _parse_let_statement: 获得 IDENT '{name_node.value}', current={self.current_token}")
 
         type_node = None
         # 3. 处理可选的类型注解 ': Type'
         if self._peek_token_is(TokenType.COLON):
             self._next_token()  # 消耗 IDENT, current_token 现在是 ':'
-            print(f"DEBUG: _parse_let_statement: 类型 ':' 之前, current={self.current_token}")
+            #print(f"DEBUG: _parse_let_statement: 类型 ':' 之前, current={self.current_token}")
             self._next_token()  # 消耗 ':', current_token 现在是 Type 的开始
-            print(f"DEBUG: _parse_let_statement: 类型开始, current={self.current_token}")
+            #print(f"DEBUG: _parse_let_statement: 类型开始, current={self.current_token}")
 
             type_node = self._parse_type()
             if type_node is None: return None
-            print(f"DEBUG: _parse_let_statement: _parse_type 后, current={self.current_token} (应为类型最后Token)")
+            #print(f"DEBUG: _parse_let_statement: _parse_type 后, current={self.current_token} (应为类型最后Token)")
 
             self._next_token()  # 消耗 Type 的最后一个 token
-            print(f"DEBUG: _parse_let_statement: 消耗类型后, current={self.current_token}")
+            #print(f"DEBUG: _parse_let_statement: 消耗类型后, current={self.current_token}")
         else:
             self._next_token()  # 消耗 IDENT (如果没有类型注解)
-            print(f"DEBUG: _parse_let_statement: 无类型, 消耗 IDENT 后, current={self.current_token}")
+            #print(f"DEBUG: _parse_let_statement: 无类型, 消耗 IDENT 后, current={self.current_token}")
 
         # 4. 处理可选的初始化器 '= Expression'
         value_node = None
-        print(f"DEBUG: _parse_let_statement: 检查赋值, current={self.current_token}")
+        #print(f"DEBUG: _parse_let_statement: 检查赋值, current={self.current_token}")
         if self._current_token_is(TokenType.ASSIGN):
             assign_token = self.current_token
             self._next_token()  # 消耗 '=', current_token 现在是 Expression 的开始
-            print(f"DEBUG: _parse_let_statement: 赋值表达式开始, current={self.current_token}")
+            #print(f"DEBUG: _parse_let_statement: 赋值表达式开始, current={self.current_token}")
 
             value_node = self.parse_expression(LOWEST)
             if value_node is None: return None
-            print(
-                f"DEBUG: _parse_let_statement: parse_expression 后, current={self.current_token} (应为表达式最后Token)")
+            #print(f"DEBUG: _parse_let_statement: parse_expression 后, current={self.current_token} (应为表达式最后Token)")
 
             self._next_token()  # 消耗 Expression 的最后一个 token
-            print(f"DEBUG: _parse_let_statement: 消耗表达式后, current={self.current_token}")
+            #print(f"DEBUG: _parse_let_statement: 消耗表达式后, current={self.current_token}")
 
         # 5. 期望并消耗分号 ';'
-        print(f"DEBUG: _parse_let_statement: 检查分号, current={self.current_token}")
+        #print(f"DEBUG: _parse_let_statement: 检查分号, current={self.current_token}")
         if not self._current_token_is(TokenType.SEMICOLON):
             msg = f"语法错误 (L{self.current_token.line} C{self.current_token.col}): 'let' 语句期望以 ';' 结束, 得到 {self.current_token.type.name} ('{self.current_token.literal}')"
             self.errors.append(msg)
-            print(f"DEBUG: _parse_let_statement: 分号错误!")
+            #print(f"DEBUG: _parse_let_statement: 分号错误!")
             return None
 
         self._next_token()  # 消耗 ';'
-        print(f"DEBUG: _parse_let_statement: 消耗分号后, current={self.current_token}")
-        print(f"DEBUG: _parse_let_statement: 结束")
+        #print(f"DEBUG: _parse_let_statement: 消耗分号后, current={self.current_token}")
+        #print(f"DEBUG: _parse_let_statement: 结束")
 
         return LetStatement(token=let_token, name=name_node, value=value_node, type_info=type_node, mutable=is_mut)
 
@@ -363,6 +368,85 @@ class Parser:
 
         return WhileStatement(token=while_token, condition=condition_node, body=body_node)
 
+    def _parse_for_statement(self) -> ForStatement | None:
+        """解析 for 循环语句: for [mut] IDENT in Expression ('..' | '..=') Expression BlockStatement"""
+        for_token = self.current_token  # 'for' token
+
+        # 1. 检查可选的 'mut'
+        is_mut = False
+        if self._peek_token_is(TokenType.MUT):
+            is_mut = True
+            self._next_token()  # 消耗 'for', current is 'mut'
+        
+        # 2. 期望循环变量
+        if not self._expect_peek(TokenType.IDENT):
+            return None
+        variable_node = Identifier(token=self.current_token, value=self.current_token.literal)
+        
+        # 3. 期望 'in' 关键字
+        if not self._expect_peek(TokenType.IN):
+            return None
+        
+        self._next_token() # 消耗 'in'
+
+        # 4. 解析迭代器表达式
+        # 我们需要手动解析 `start .. end` 或 `start ..= end`
+        # 因为它不是一个标准的 InfixExpression (我们不想让 `i in 1..2+3` 解析为 `(i in 1..2) + 3`)
+        
+        start_expr = self.parse_expression(RANGE) # 解析范围的起始部分
+        if start_expr is None: return None
+        
+        # 检查范围操作符 '..' or '..='
+        if not self._peek_token_is(TokenType.DOTDOT) and not self._peek_token_is(TokenType.DOTDOT_EQ):
+            msg = f"语法错误 (L{self.peek_token.line} C{self.peek_token.col}): for 循环期望范围操作符 '..' 或 '..=', 得到 {self.peek_token.type.name}"
+            self.errors.append(msg)
+            return None
+            
+        self._next_token() # 消耗起始表达式的最后一个 token
+        
+        range_op_token = self.current_token
+        is_inclusive = self.current_token.type == TokenType.DOTDOT_EQ
+        
+        self._next_token() # 消耗 '..' or '..='
+        
+        end_expr = self.parse_expression(RANGE) # 解析范围的结束部分
+        if end_expr is None: return None
+
+        # 将整个范围表达式 (e.g., `1..10`) 包装成一个 InfixExpression 节点
+        iterator_node = InfixExpression(
+            token=range_op_token,
+            left=start_expr,
+            operator=range_op_token.literal,
+            right=end_expr
+        )
+        
+        # 5. 期望 '{' 开始循环体
+        if not self._peek_token_is(TokenType.LBRACE):
+            self._peek_error(TokenType.LBRACE)
+            return None
+        self._next_token() # 消耗迭代器表达式的最后一个 token
+        
+        # 6. 解析循环体块
+        body_node = self._parse_block_statement()
+        if body_node is None:
+            return None
+        
+        # _parse_block_statement 停在 '}' 上，消耗它
+        if not self._current_token_is(TokenType.RBRACE):
+            msg = f"内部错误: for 循环的块解析未在 '}}' 停止 (L{self.current_token.line})"
+            self.errors.append(msg)
+            return None
+        self._next_token() # 消耗 '}'
+        
+        return ForStatement(
+            token=for_token, 
+            variable=variable_node, 
+            iterator=iterator_node, 
+            body=body_node,
+            mutable=is_mut,
+            inclusive=is_inclusive
+        )
+    
     def _parse_assignment_statement(self) -> Statement | None:
         # 假设调用时 current_token 是 IDENT (Assignable 的开头)
         # 并且我们已经预读到下一个 Token 是 ASSIGN
@@ -522,16 +606,37 @@ class Parser:
         return params
 
     def _parse_type(self) -> TypeNode | None:
-        """Parses a type annotation. Returns TypeNode or None.
+        """Parses a type annotation, now supporting references.
+        Example: i32, &i32, &mut i32
         Leaves current_token on the last token of the parsed type."""
+        
         type_token = self.current_token
-        if self._current_token_is(TokenType.I32):
-            # Return node, DO NOT advance token here.
+        
+        if self._current_token_is(TokenType.AMPERSAND): # Handle reference types: &T or &mut T
+            ref_token = self.current_token
+            self._next_token() # Consume '&'
+            
+            is_mut_ref = False
+            if self._current_token_is(TokenType.MUT):
+                is_mut_ref = True
+                self._next_token() # Consume 'mut'
+            
+            # 递归解析引用的基础类型
+            base_type = self._parse_type()
+            if base_type is None: return None
+
+            # 构造一个新的复合类型名
+            new_type_name = f"&{'mut ' if is_mut_ref else ''}{base_type.name}"
+            # 创建一个 TypeNode，虽然它的名字是构造的，但它代表了整个引用类型结构
+            # 语义分析器会从中解析出 ReferenceType 对象
+            return TypeNode(token=ref_token, name=new_type_name)
+
+        elif self._current_token_is(TokenType.I32):
             return TypeNode(token=type_token, name="i32")
-        # Add elif for other types (&, [], () etc.) ensuring they also
-        # leave current_token on their respective last token.
+        # elif self._current_token_is(TokenType.BOOL): # 假设你添加了布尔类型
+        #     return TypeNode(token=type_token, name="bool")
         else:
-            msg = f"语法错误 (L{type_token.line} C{type_token.col}): 期望类型名 (如 i32), 得到 {type_token.type.name} ('{type_token.literal}')"
+            msg = f"语法错误 (L{type_token.line} C{type_token.col}): 期望类型名 (如 i32, &i32), 得到 {type_token.type.name} ('{type_token.literal}')"
             self.errors.append(msg)
             return None
 
@@ -592,13 +697,25 @@ class Parser:
         try: value = int(self.current_token.literal)
         except ValueError: msg = f"语法错误 (L{self.current_token.line} C{self.current_token.col}): 无法将 '{self.current_token.literal}' 转换为整数"; self.errors.append(msg); return None
         return IntegerLiteral(token=self.current_token, value=value)
+    
     def _parse_prefix_expression(self) -> PrefixExpression | None:
         # Keep original token consumption
-        operator_token = self.current_token; operator = operator_token.literal
-        self._next_token() # Assume original consumed operator here
+        operator_token = self.current_token
+        operator = operator_token.literal
+
+        # 特殊处理 '&mut'，它是一个双词前缀
+        if operator_token.type == TokenType.AMPERSAND and self._peek_token_is(TokenType.MUT):
+            self._next_token() # 消耗 '&'，当前是 'mut'
+            operator = "&mut"  # 将操作符合并为一个逻辑单元
+            # 'mut' token 将作为 PrefixExpression 的 token，因为它更靠后
+            operator_token = self.current_token 
+        
+        self._next_token() # 消耗操作符 (-, !, *, & 或 mut)
+        
         right_node = self.parse_expression(PREFIX) # Returns Node
         if right_node is None: return None
         return PrefixExpression(token=operator_token, operator=operator, right=right_node)
+    
     def _parse_grouped_expression_or_tuple(self) -> Expression | None:
          # Keep original token consumption
          self._next_token() # Assume consumes '('
@@ -691,14 +808,7 @@ class Parser:
     # --- Placeholders for unimplemented features (Return None) ---
     # ... (Keep placeholders as they were in the working version, just return None) ...
     def _parse_array_literal(self): self.errors.append("数组字面量解析未实现"); return None
-    # def _parse_loop_expression(self): self.errors.append("Loop 表达式解析未实现"); return None
     def _parse_index_expression(self, left): self.errors.append("索引表达式解析未实现"); return None
     def _parse_access_expression(self, left): self.errors.append("访问表达式解析未实现"); return None
-    # def _parse_if_statement(self): return self._parse_if_expression() # Reuse if treating as expr
-
-    # def _parse_loop_statement(self): self.errors.append("Loop 语句解析未实现"); return None
-    def _parse_for_statement(self): self.errors.append("For 语句解析未实现"); return None
-    # def _parse_break_statement(self): self.errors.append("Break 语句解析未实现"); return None
-    # def _parse_continue_statement(self): self.errors.append("Continue 语句解析未实现"); return None
     def _is_if_expression_context(self): return False # Keep original context logic
     def _is_loop_expression_context(self): return False # Keep original context logic

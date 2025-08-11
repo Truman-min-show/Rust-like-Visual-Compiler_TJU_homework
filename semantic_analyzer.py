@@ -3,7 +3,7 @@ from ast_nodes import (
     BlockStatement, FunctionDeclarationStatement, ParameterNode, IfStatement,
     Identifier, IntegerLiteral, PrefixExpression, InfixExpression,
     CallExpression, TypeNode, WhileStatement, LoopStatement, BreakStatement,
-    ContinueStatement, AssignmentStatement, BooleanLiteral
+    ContinueStatement, AssignmentStatement, BooleanLiteral, ForStatement
 )
 from symbol_table import (
     SymbolTable, Type, FunctionType,
@@ -17,7 +17,9 @@ class SemanticAnalyzer(Visitor):
         self.current_function_return_type = None
         self.loop_depth = 0
         self._is_read_context = False  # Internal flag to track if an identifier is being read
-
+        # --- 新增: 用于借用检查 ---
+        # 跟踪每个变量的借用状态: { "var_name": {"mut_borrows": count, "immut_borrows": count} }
+        self.borrow_states = {}
     def get_errors(self):
         return self.symbol_table.semantic_errors
 
@@ -118,60 +120,57 @@ class SemanticAnalyzer(Visitor):
             # Subsequent operations might still fail if they depend on a valid value.
 
     def visit_assignment_statement(self, node: AssignmentStatement):
-        # --- 1. Process Target (L-value) ---
-        # Temporarily set read_context to False for the target itself
-        original_is_read_context = self._is_read_context
-        self._is_read_context = False
-        node.target.accept(self)  # This resolves the target (e.g., calls visit_identifier)
-        self._is_read_context = original_is_read_context
-
-        target_ast_node_type = self._get_node_type(node.target)
-        target_symbol = None
-
-        if isinstance(node.target, Identifier):
-            target_symbol = self.symbol_table.resolve(node.target.value)
-            if not target_symbol:
-                # Error should have been caught by node.target.accept() -> visit_identifier
-                node.eval_type = TYPE_ERROR
-                return
-            if target_ast_node_type == TYPE_ERROR:  # If identifier resolution or type itself is an error
-                node.eval_type = TYPE_ERROR
-                return
-        else:
-            # Add support for other L-values like array indexing, field access later
-            self.symbol_table.add_error(
-                f"Target of assignment must be a simple variable for now. Got {type(node.target).__name__}.",
-                node.target)
+        # 1. 处理右值 (R-value)
+        value_type_from_expr = self._process_expr_in_read_context(node.value)
+        if value_type_from_expr == TYPE_ERROR:
             node.eval_type = TYPE_ERROR
             return
 
-        if not target_symbol.is_mutable:
-            self.symbol_table.add_error(
-                f"Cannot assign to immutable variable '{target_symbol.name}'. Variable must be declared 'mut'.",
-                node.target)
-            # Assignment is invalid due to immutability, but still check type of R-value.
+        # 2. 处理左值 (L-value)
+        original_is_read_context = self._is_read_context
+        self._is_read_context = False # L-value 不是读取
+        node.target.accept(self)
+        self._is_read_context = original_is_read_context
+        
+        target_type = self._get_node_type(node.target)
+        
+        # --- 情况 A: 赋值给解引用的指针 *ptr = ... ---
+        if isinstance(node.target, PrefixExpression) and node.target.operator == '*':
+            # node.target 的类型 (target_type) 是解引用后的类型，例如 i32
+            # 我们需要检查指针本身是否是可变引用
+            ptr_expr_node = node.target.right
+            # 我们需要重新访问一次 ptr_expr_node 来获取它的类型（即引用类型）
+            ptr_type = self._process_expr_in_read_context(ptr_expr_node)
 
-        # --- 2. Process Value (R-value) ---
-        value_type_from_expr = self._process_expr_in_read_context(node.value)
+            from symbol_table import ReferenceType
+            if not isinstance(ptr_type, ReferenceType) or not ptr_type.is_mutable_ref:
+                self.symbol_table.add_error(f"Cannot assign through an immutable or non-reference type '{ptr_type}'.", ptr_expr_node)
+                node.eval_type = TYPE_ERROR
+                return
+            
+            # 检查类型匹配
+            expected_type = ptr_type.referenced_type
+            if expected_type != value_type_from_expr:
+                self.symbol_table.add_error(f"Type mismatch in assignment. Expected '{expected_type}', got '{value_type_from_expr}'.", node.value)
 
-        if value_type_from_expr == TYPE_ERROR:  # Error in evaluating the R-value
-            node.eval_type = TYPE_ERROR  # Assignment statement is erroneous
-            return
+        # --- 情况 B: 赋值给普通变量 var = ... ---
+        elif isinstance(node.target, Identifier):
+            # (已有的逻辑)
+            target_symbol = self.symbol_table.resolve(node.target.value)
+            if not target_symbol:
+                node.eval_type = TYPE_ERROR
+                return
+            if not target_symbol.is_mutable:
+                self.symbol_table.add_error(f"Cannot assign to immutable variable '{target_symbol.name}'.", node.target)
+            
+            if target_symbol.type != value_type_from_expr:
+                 self.symbol_table.add_error(f"Type mismatch in assignment to '{target_symbol.name}'. Expected '{target_symbol.type}', got '{value_type_from_expr}'.", node.value)
+            else:
+                 target_symbol.is_initialized = True
+        else:
+             self.symbol_table.add_error(f"Invalid left-hand side in assignment.", node.target)
 
-        # --- 3. Type Check and Update Initialization ---
-        if target_symbol.type != TYPE_ERROR and \
-                value_type_from_expr != target_symbol.type and \
-                value_type_from_expr != TYPE_UNKNOWN:  # Allow assigning 'unknown' for now, might tighten later
-            self.symbol_table.add_error(
-                f"Type mismatch in assignment to '{target_symbol.name}'. Expected '{target_symbol.type}', got '{value_type_from_expr}'.",
-                node
-            )
-        else:  # Types are compatible (or target was error, or value was unknown)
-            # Mark as initialized only if target is mutable and types are fine
-            if target_symbol.type != TYPE_ERROR and target_symbol.is_mutable:
-                target_symbol.is_initialized = True
-
-        node.eval_type = TYPE_VOID  # Assignment statement itself is void
+        node.eval_type = TYPE_VOID
 
     def visit_integer_literal(self, node: IntegerLiteral):
         node.eval_type = TYPE_I32
@@ -180,12 +179,38 @@ class SemanticAnalyzer(Visitor):
         node.eval_type = TYPE_BOOL
 
     def visit_type_node(self, node: TypeNode):
-        if node.name == "i32":
+        type_name = node.name
+        if type_name.startswith("&"):
+            # 解析引用类型: &mut i32 or &i32
+            is_mut_ref = "&mut" in type_name
+            base_type_str = type_name.replace("&mut ", "").replace("&", "")
+            
+            # 伪造一个临时的 TypeNode 来解析基础类型
+            # 注意：这需要你的词法分析器能识别 i32, bool 等作为关键字或特殊标识符
+            from token_defs import Token, TokenType
+            
+            base_type_token_type = TokenType.I32 if base_type_str == "i32" else TokenType.BOOL if base_type_str == "bool" else TokenType.ILLEGAL
+            if base_type_token_type == TokenType.ILLEGAL:
+                 self.symbol_table.add_error(f"Unknown base type '{base_type_str}' in reference.", node)
+                 node.eval_type = TYPE_ERROR
+                 return
+
+            temp_base_node = TypeNode(Token(base_type_token_type, base_type_str, 0, 0), base_type_str)
+            self.visit_type_node(temp_base_node) # 递归解析
+            base_type = self._get_node_type(temp_base_node)
+
+            if base_type == TYPE_ERROR:
+                node.eval_type = TYPE_ERROR
+            else:
+                from symbol_table import ReferenceType
+                node.eval_type = ReferenceType(base_type, is_mut_ref)
+
+        elif type_name == "i32":
             node.eval_type = TYPE_I32
-        elif node.name == "bool":
+        elif type_name == "bool":
             node.eval_type = TYPE_BOOL
         else:
-            self.symbol_table.add_error(f"Unknown type name '{node.name}'.", node)
+            self.symbol_table.add_error(f"Unknown type name '{type_name}'.", node)
             node.eval_type = TYPE_ERROR
 
     def visit_expression_statement(self, node: ExpressionStatement):
@@ -223,13 +248,88 @@ class SemanticAnalyzer(Visitor):
             else:
                 self.symbol_table.add_error(
                     f"Logical operator '{op}' requires boolean operands, got '{left_type}' and '{right_type}'.", node)
+        elif op in ['..', '..=']: 
+            if left_type == TYPE_I32 and right_type == TYPE_I32:
+                # 范围表达式的类型可以被视为一个特殊的 "range" 类型
+                result_type = Type("range<i32>") 
+            else:
+                self.symbol_table.add_error(
+                    f"Range operator '{op}' requires i32 operands, got '{left_type}' and '{right_type}'.", node)
         else:
             self.symbol_table.add_error(f"Unsupported infix operator '{op}'.", node)
         node.eval_type = result_type
 
     def visit_prefix_expression(self, node: PrefixExpression):
-        right_type = self._process_expr_in_read_context(node.right)
         op = node.operator
+        from symbol_table import ReferenceType, TYPE_ERROR, TYPE_I32, TYPE_BOOL # 确保导入
+
+        # 规则 1: 处理解引用 '*'
+        if op == '*':
+            right_type = self._process_expr_in_read_context(node.right)
+            if isinstance(right_type, ReferenceType):
+                node.eval_type = right_type.referenced_type # 解引用后得到的是被引用的类型
+            else:
+                if right_type != TYPE_ERROR:
+                    self.symbol_table.add_error(f"Cannot dereference non-reference type '{right_type}'.", node)
+                node.eval_type = TYPE_ERROR
+            return
+
+        # 规则 2 & 3 & 4: 处理引用创建 '&' 和 '&mut'
+        if op == '&' or op == '&mut':
+            # 取地址不是读取变量的值，而是获取其位置
+            original_is_read_context = self._is_read_context
+            self._is_read_context = False
+            node.right.accept(self)
+            self._is_read_context = original_is_read_context
+
+            right_type = self._get_node_type(node.right)
+
+            # 引用只能从一个已声明的标识符（变量）创建
+            if not isinstance(node.right, Identifier):
+                self.symbol_table.add_error(f"Cannot take a reference to a temporary value.", node.right)
+                node.eval_type = TYPE_ERROR
+                return
+
+            var_name = node.right.value
+            symbol = self.symbol_table.resolve(var_name)
+            if not symbol: # 错误已由 node.right.accept() 报告
+                node.eval_type = TYPE_ERROR
+                return
+
+            # --- 借用冲突检查 ---
+            current_borrows = self.borrow_states.get(var_name, {"mut": 0, "immut": 0})
+            is_mut_ref = (op == '&mut')
+
+            if is_mut_ref:
+                # 规则: 尝试创建 &mut T 时，不能有任何其他借用 (mut 或 immut)
+                if current_borrows["mut"] > 0 or current_borrows["immut"] > 0:
+                    self.symbol_table.add_error(f"Cannot borrow '{var_name}' as mutable because it is already borrowed.", node)
+                    node.eval_type = TYPE_ERROR
+                    return
+                # 规则: 只能从可变变量创建可变引用
+                if not symbol.is_mutable:
+                    self.symbol_table.add_error(f"Cannot take a mutable reference from immutable variable '{var_name}'.", node.right)
+                    node.eval_type = TYPE_ERROR
+                    return
+                # 记录新的可变借用
+                current_borrows["mut"] += 1
+            else:  # 创建 &T
+                # 规则: 尝试创建 &T 时，不能有 &mut T 借用
+                if current_borrows["mut"] > 0:
+                    self.symbol_table.add_error(f"Cannot borrow '{var_name}' as immutable because it is already borrowed as mutable.", node)
+                    node.eval_type = TYPE_ERROR
+                    return
+                # 记录新的不可变借用
+                current_borrows["immut"] += 1
+
+            self.borrow_states[var_name] = current_borrows
+            # --- 冲突检查结束 ---
+
+            node.eval_type = ReferenceType(right_type, is_mut_ref)
+            return
+
+        # --- 原有的其他前缀操作符逻辑 (如 -, !) ---
+        right_type = self._process_expr_in_read_context(node.right)
         result_type = TYPE_ERROR
 
         if right_type == TYPE_ERROR:
@@ -247,7 +347,9 @@ class SemanticAnalyzer(Visitor):
             else:
                 self.symbol_table.add_error(f"Logical NOT '!' requires boolean operand, got '{right_type}'.", node)
         else:
-            self.symbol_table.add_error(f"Unsupported prefix operator '{op}'.", node)
+            # 此处不应到达，因为所有已知的前缀操作符都已被处理
+            self.symbol_table.add_error(f"Internal Error: Unhandled prefix operator '{op}'.", node)
+
         node.eval_type = result_type
 
     def visit_block_statement(self, node: BlockStatement):
@@ -271,7 +373,7 @@ class SemanticAnalyzer(Visitor):
             if p_node.type_info:
                 p_node.type_info.accept(self)
                 param_type = self._get_node_type(p_node.type_info)
-            else:  # Should be caught by parser if types are mandatory
+            else:
                 self.symbol_table.add_error(
                     f"Parameter '{p_node.name.value}' in function '{func_name}' is missing a type.", p_node)
                 param_type = TYPE_ERROR
@@ -282,28 +384,32 @@ class SemanticAnalyzer(Visitor):
             node.return_type.accept(self)
             func_return_type_obj = self._get_node_type(node.return_type)
 
+        from symbol_table import FunctionType # 确保导入
         fn_type_signature = FunctionType(param_type_objects, func_return_type_obj)
 
-        # Define function in the current (outer) scope
         existing_symbol = self.symbol_table.scopes[self.symbol_table.current_scope_level].get(func_name)
-        if existing_symbol:  # Rudimentary check for redefinition
+        if existing_symbol:
             self.symbol_table.add_error(f"Identifier '{func_name}' (function) redefined in the same scope.", node.name)
 
         self.symbol_table.define(func_name, fn_type_signature, "function", is_mutable=False,
-                                 is_initialized=True, node_for_error=node.name)  # Functions are "initialized"
+                                 is_initialized=True, node_for_error=node.name)
         node.name.eval_type = fn_type_signature
 
         # --- Process function body in new scope ---
         old_return_type = self.current_function_return_type
         self.current_function_return_type = func_return_type_obj
 
+        # --- 新增: 为新函数重置借用状态 ---
+        # 这个简化的模型假设所有借用的生命周期不超过整个函数。
+        self.borrow_states = {}
+
         self.symbol_table.enter_scope()
         param_names = set()
         for i, param_node in enumerate(node.parameters):
             p_name = param_node.name.value
             p_type = param_type_objects[i]
-            param_node.eval_type = p_type  # Type of ParameterNode itself
-            param_node.name.eval_type = p_type  # Type of Identifier within ParameterNode
+            param_node.eval_type = p_type
+            param_node.name.eval_type = p_type
 
             if p_name in param_names:
                 self.symbol_table.add_error(f"Duplicate parameter name '{p_name}' in function '{func_name}'.",
@@ -311,21 +417,19 @@ class SemanticAnalyzer(Visitor):
             else:
                 param_names.add(p_name)
 
-            if p_type != TYPE_ERROR:  # Only define if type is not erroneous
+            if p_type != TYPE_ERROR:
                 self.symbol_table.define(p_name, p_type, "parameter", param_node.mutable,
-                                         is_initialized=True, node_for_error=param_node.name)  # Params are initialized
+                                         is_initialized=True, node_for_error=param_node.name)
 
         if node.body:
             node.body.accept(self)
-            # Optional: Check if block's type matches return type if it's an expression block
-            # body_block_type = self._get_node_type(node.body)
-            # if func_return_type_obj != TYPE_VOID and body_block_type != TYPE_VOID and \
-            #    body_block_type != func_return_type_obj and body_block_type != TYPE_ERROR:
-            #    self.symbol_table.add_error(f"Function body's implicit return type '{body_block_type}' "
-            #                                f"doesn't match declared return type '{func_return_type_obj}'.", node.body)
 
         self.symbol_table.exit_scope()
         self.current_function_return_type = old_return_type
+
+        # --- 函数结束，所有借用都失效了 (在简化模型中) ---
+        self.borrow_states = {}
+
         node.eval_type = TYPE_VOID  # Function declaration statement is void
 
     def visit_parameter_node(self, node: ParameterNode):
@@ -448,6 +552,50 @@ class SemanticAnalyzer(Visitor):
                 node.eval_type = TYPE_ERROR
         else:  # if without else (evaluates to void or unit type)
             node.eval_type = TYPE_VOID
+
+    def visit_for_statement(self, node: ForStatement):
+        self.loop_depth += 1
+        
+        # 1. 分析迭代器
+        iterator_type = self._process_expr_in_read_context(node.iterator)
+        
+        is_valid_iterator = False
+        # 检查迭代器是否是 `..` 或 `..=` 的 InfixExpression
+        if isinstance(node.iterator, InfixExpression) and node.iterator.operator in ["..", "..="]:
+            left_type = self._get_node_type(node.iterator.left)
+            right_type = self._get_node_type(node.iterator.right)
+            if left_type == TYPE_I32 and right_type == TYPE_I32:
+                is_valid_iterator = True
+                node.iterator.eval_type = Type("range<i32>") 
+            else:
+                 self.symbol_table.add_error(f"For loop range must have integer (i32) bounds, got '{left_type}' and '{right_type}'.", node.iterator)
+        else:
+            self.symbol_table.add_error(f"For loop currently only supports range expressions, got {iterator_type}.", node.iterator)
+            
+        # 2. 进入新作用域并定义循环变量
+        self.symbol_table.enter_scope()
+        var_name = node.variable.value
+        
+        var_type = TYPE_I32 if is_valid_iterator else TYPE_ERROR
+        node.variable.eval_type = var_type
+        
+        # --- 修改点: 使用来自 AST 节点的 mutable 标志 ---
+        self.symbol_table.define(
+            var_name, 
+            var_type, 
+            "variable", 
+            is_mutable=node.mutable, # 使用 AST 节点的 mutable 属性
+            is_initialized=True, 
+            node_for_error=node.variable
+        )
+
+        # 3. 分析循环体
+        node.body.accept(self)
+
+        # 4. 退出作用域
+        self.symbol_table.exit_scope()
+        self.loop_depth -= 1
+        node.eval_type = TYPE_VOID
 
     def visit_while_statement(self, node: WhileStatement):
         self.loop_depth += 1

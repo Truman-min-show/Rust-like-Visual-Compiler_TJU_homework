@@ -123,6 +123,15 @@ class ASTPrinter(Visitor):
     def visit_type_node(self, node: TypeNode):
          # Usually not printed directly, but within context (Let, Param)
          pass
+    
+    def visit_for_statement(self, node: ForStatement):
+        self._print(f"ForStatement(variable='{node.variable.value}')")
+        self.indent_level += 1
+        self._print("Iterator:")
+        node.iterator.accept(self)
+        self._print("Body:")
+        node.body.accept(self)
+        self.indent_level -= 1   
 
     def visit_while_statement(self, node: WhileStatement):
         self._print("WhileStatement:")

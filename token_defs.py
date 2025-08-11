@@ -38,6 +38,7 @@ class TokenType(enum.Enum):
     AMPERSAND = '&' # Reference/Borrow
     DOT = '.'       # Field access
     DOTDOT = '..'   # Range
+    DOTDOT_EQ = '..=' # Inclusive Range
     ARROW = '->'    # Function return type
 
     # Delimiters

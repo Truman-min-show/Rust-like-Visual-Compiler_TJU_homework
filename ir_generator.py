@@ -4,7 +4,7 @@ from ast_nodes import (
     BlockStatement, FunctionDeclarationStatement, ParameterNode, IfStatement,
     Identifier, IntegerLiteral, PrefixExpression, InfixExpression,
     CallExpression, TypeNode, WhileStatement, LoopStatement, BreakStatement,
-    ContinueStatement, AssignmentStatement, BooleanLiteral
+    ContinueStatement, AssignmentStatement, BooleanLiteral, ForStatement
 )
 # from symbol_table import TYPE_BOOL # 通常不需要在IR生成器中直接引用语义类型对象
 from symbol_table import FunctionType
@@ -104,9 +104,16 @@ class IRGenerator(Visitor):
         return None
 
     def visit_assignment_statement(self, node: AssignmentStatement):
-        # 假设 target 是 Identifier
-        target_ir_value = node.target.accept(self) # 通常是 IRValue(name)
         value_ir = node.value.accept(self)
+        
+        # --- 情况 A: *ptr = val ---
+        if isinstance(node.target, PrefixExpression) and node.target.operator == '*':
+            ptr_ir_val = node.target.right.accept(self)
+            self._emit("store", value_ir, None, ptr_ir_val) # STORE (存到地址)
+            return None
+
+        # --- 情况 B: var = val (已有逻辑) ---
+        target_ir_value = node.target.accept(self)
         if target_ir_value is not None and value_ir is not None:
             self._emit("assign", value_ir, None, target_ir_value)
         return None
@@ -140,14 +147,34 @@ class IRGenerator(Visitor):
         return result_temp
 
     def visit_prefix_expression(self, node: PrefixExpression):
+        op = node.operator
+
+        if op == '&' or op == '&mut':
+            # 右侧必须是Identifier
+            if not isinstance(node.right, Identifier):
+                # 语义分析应该已经捕获了这个错误
+                return None
+            
+            var_ir_val = IRValue(node.right.value)
+            result_temp = self._new_temp()
+            self._emit("addr", var_ir_val, None, result_temp) # ADDR (取地址)
+            return result_temp
+
+        if op == '*':
+            # 解引用
+            ptr_ir_val = node.right.accept(self)
+            result_temp = self._new_temp()
+            self._emit("load", ptr_ir_val, None, result_temp) # LOAD (从地址加载)
+            return result_temp
+        
+        # --- 原有逻辑 ---
         operand_ir = node.right.accept(self)
         result_temp = self._new_temp()
-        # 映射操作符
-        op_map = {'-': 'uminus', '!': 'not'} # '!' (逻辑非)
-        ir_op = op_map.get(node.operator, f"unary_{node.operator}") # 如 "unary_&"
+        op_map = {'-': 'uminus', '!': 'not'}
+        ir_op = op_map.get(node.operator, f"unary_{node.operator}")
         self._emit(ir_op, operand_ir, None, result_temp)
         return result_temp
-
+    
     def visit_expression_statement(self, node: ExpressionStatement):
         if node.expression:
             node.expression.accept(self) # 结果被丢弃，只关心副作用
@@ -180,6 +207,50 @@ class IRGenerator(Visitor):
             node.alternative.accept(self)
             
         self._emit("label", end_if_label, None, None)
+        return None
+
+    def visit_for_statement(self, node: ForStatement):
+        # 脱糖为 while 循环的 IR
+        
+        # 1. 创建标签
+        start_label = self._new_label("ForStart")
+        end_label = self._new_label("ForEnd")
+        
+        self.loop_continue_labels.append(start_label) # continue 将跳到增量部分再跳到循环头
+        self.loop_exit_labels.append(end_label)
+        
+        # 2. 初始化循环变量
+        loop_var_ir = IRValue(node.variable.value)
+        # 假设迭代器是 InfixExpression '..'
+        start_val_ir = node.iterator.left.accept(self)
+        end_val_ir = node.iterator.right.accept(self)
+        
+        self._emit("assign", start_val_ir, None, loop_var_ir)
+        
+        # 3. 循环开始和条件检查
+        self._emit("label", start_label, None, None)
+        cond_temp = self._new_temp()
+        self._emit("lt", loop_var_ir, end_val_ir, cond_temp) # i < end
+        self._emit("if_false_goto", cond_temp, end_label, None)
+        
+        # 4. 循环体
+        node.body.accept(self)
+        
+        # 5. 循环变量自增
+        const_one = IRValue(1, is_const=True)
+        inc_temp = self._new_temp()
+        self._emit("+", loop_var_ir, const_one, inc_temp)
+        self._emit("assign", inc_temp, None, loop_var_ir)
+        
+        # 6. 跳回循环开始
+        self._emit("goto", start_label, None, None)
+        
+        # 7. 循环结束
+        self._emit("label", end_label, None, None)
+        
+        self.loop_continue_labels.pop()
+        self.loop_exit_labels.pop()
+        
         return None
 
     def visit_while_statement(self, node: WhileStatement):
