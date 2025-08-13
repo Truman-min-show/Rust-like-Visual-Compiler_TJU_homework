@@ -603,8 +603,7 @@ class LexerApp:
 
         try:
             # 2. 定义并创建输出目录
-            # os.path.dirname(__file__) 获取当前脚本(gui.py)所在的目录
-            base_dir = os.path.dirname(__file__)
+            base_dir = get_base_path()
             output_dir = os.path.join(base_dir, "assembly_result")
             os.makedirs(output_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
 
@@ -765,4 +764,5 @@ class LexerApp:
 if __name__ == "__main__":
     root = tk.Tk()
     app = LexerApp(root)
+
     root.mainloop()
