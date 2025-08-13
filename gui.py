@@ -5,7 +5,8 @@ import io
 from graphviz import Digraph
 from PIL import Image, ImageTk
 import subprocess
-import os 
+import os
+import sys
 from datetime import datetime
 
 try:
@@ -22,6 +23,19 @@ except ImportError as e:
     print("请确保 token_defs.py, lexer.py, parser.py, ast_nodes.py, ast_printer.py, "
           "symbol_table.py, semantic_analyzer.py, ir_generator.py 文件存在且位于同一目录。")
     exit()
+
+def get_base_path():
+    """
+    获取资源的基准路径。
+    - 如果作为 .exe 运行，则返回 .exe 文件所在的目录。
+    - 如果作为 .py 脚本运行，则返回脚本所在的目录。
+    """
+    if getattr(sys, 'frozen', False):
+        # 程序被 PyInstaller 打包成了 exe
+        return os.path.dirname(sys.executable)
+    else:
+        # 程序作为正常的 .py 脚本运行
+        return os.path.dirname(os.path.abspath(__file__))
 
 class ASTGraphvizDrawer:
     # ... (ASTGraphvizDrawer 代码来自之前的提示 - 保持不变) ...
@@ -187,14 +201,17 @@ class ASTGraphvizDrawer:
 
     def render_to_memory(self):
         try:
+            # 使用辅助函数获取基准路径
+            base_dir = get_base_path()
+
             # 渲染图到二进制数据（而不是文件）
-            tmp_filepath = os.path.join(os.path.dirname(__file__), "ast_tmp_output")
+            tmp_filepath = os.path.join(base_dir, "ast_tmp_output")
             tmp_filepath_dot = tmp_filepath + ".dot"
             tmp_filepath_png = tmp_filepath + ".png"
 
             self.graph.save(tmp_filepath_dot)
 
-            dot_exe_path = os.path.join('graphviz_bin', 'dot.exe')
+            dot_exe_path = os.path.join(base_dir, 'graphviz_bin', 'dot.exe')
             subprocess.run([
                 dot_exe_path,
                 "-Tpng",
@@ -254,9 +271,10 @@ class LexerApp:
         self.input_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         try:
-            # os.path.dirname(__file__) 获取当前脚本(gui.py)所在的目录
-            # os.path.join 构造跨平台的路径
-            rs_file_path = os.path.join(os.path.dirname(__file__), "test.rs")
+            # 使用新的辅助函数来获取正确的基准路径
+            base_dir = get_base_path()
+            rs_file_path = os.path.join(base_dir, "test.rs")  # <-- 修改点
+
             with open(rs_file_path, "r", encoding="utf-8") as f:
                 rust_code = f.read()
             self.input_text.insert(tk.END, rust_code)
