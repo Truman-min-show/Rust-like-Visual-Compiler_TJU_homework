@@ -43,7 +43,7 @@ def get_base_path():
 class LexerApp:
     def __init__(self, master):
         self.master = master
-        master.title("Rust 编译器 (词法/语法/语义分析 + IR/汇编生成 + 两种方法自动汇编链接执行/AST图像生成)") # 更新标题
+        master.title("Rust 编译器 (词法/语法/语义分析 + IR/汇编生成 + 两种方法自动汇编链接运行/AST图像生成)") # 更新标题
         master.geometry("1000x700")
 
         default_font = tkFont.nametofont("TkDefaultFont")
@@ -200,7 +200,7 @@ class LexerApp:
         # 2. 使用您已有的方法创建可滚动的文本框
         self.assembly_text = self.create_scrollable_text(assembly_tab, font=text_font, wrap=tk.NONE)
 
-        assembly_output_label = tk.Label(assembly_tab, text="两种方法汇编、链接并执行:", font=default_font)
+        assembly_output_label = tk.Label(assembly_tab, text="两种方法汇编、链接并运行:", font=default_font)
         assembly_output_label.pack(pady=(5, 5), fill=tk.X, padx=5)
         self.run_output_text = self.create_scrollable_text(assembly_tab, font=text_font)
 
@@ -441,7 +441,7 @@ class LexerApp:
         
         self.run_output_text.insert(tk.END, f"输出目录: {output_dir}\n")
         self.run_output_text.insert(tk.END, f"汇编和链接方式: {'本地工具' if self.compile_method.get() == 'local' else 'WSL'}\n")
-        self.run_output_text.insert(tk.END, f"程序执行环境: {'Windows' if self.compile_method.get() == 'local' else 'Linux'}\n\n")
+        self.run_output_text.insert(tk.END, f"程序运行环境: {'Windows' if self.compile_method.get() == 'local' else 'Linux'}\n\n")
 
         method = self.compile_method.get()
 
