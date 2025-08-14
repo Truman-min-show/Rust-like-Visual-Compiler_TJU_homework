@@ -114,10 +114,10 @@ class LexerApp:
         frame_row2 = tk.Frame(button_container)
         frame_row2.pack(fill=tk.X, expand=True)
 
-        semantic_button = tk.Button(frame_row2, text="3. 语义分析和 IR 生成 ", command=self.perform_semantic_analysis_and_ir, font=default_font)
+        semantic_button = tk.Button(frame_row2, text="3. 语义分析和四元式生成", command=self.perform_semantic_analysis_and_ir, font=default_font)
         semantic_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
 
-        asm_button = tk.Button(frame_row2, text="4. 生成NASM汇编代码", command=self.perform_assembly_generation, font=default_font)
+        asm_button = tk.Button(frame_row2, text="4. 生成 NASM 汇编代码 ", command=self.perform_assembly_generation, font=default_font)
         asm_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
 
         # -- 第三行按钮 --
@@ -127,7 +127,7 @@ class LexerApp:
         run_button = tk.Button(frame_row3, text="5. 汇编、链接并运行", command=self.assemble_link_and_run, font=default_font)
         run_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
 
-        ast_button = tk.Button(frame_row3, text="6. 生成AST节点图像 ", command=self.show_ast, font=default_font)
+        ast_button = tk.Button(frame_row3, text="6. 生成AST节点图像", command=self.show_ast, font=default_font)
         ast_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
 
         # 在左侧按钮面板的 "5. 汇编、链接并运行" 按钮下方，添加汇编选项
