@@ -7,13 +7,13 @@ from PIL import Image, ImageTk
 import subprocess
 import os
 import sys
-from datetime import datetime
 
 try:
     from token_defs import TokenType, Token
     from lexer import Lexer
     from parser import Parser
     from ast_printer import ASTPrinter
+    from ast_drawer import ASTGraphvizDrawer # <-- 修改：从新文件导入
     from symbol_table import SymbolTable, Type, FunctionType, TYPE_I32, TYPE_BOOL, TYPE_VOID, TYPE_UNKNOWN, TYPE_ERROR
     from semantic_analyzer import SemanticAnalyzer
     from assembly_generator import AssemblyGenerator
@@ -37,208 +37,13 @@ def get_base_path():
         # 程序作为正常的 .py 脚本运行
         return os.path.dirname(os.path.abspath(__file__))
 
-class ASTGraphvizDrawer:
-    # ... (ASTGraphvizDrawer 代码来自之前的提示 - 保持不变) ...
-    # (确保它包含了您 AST 节点的所有 visit 方法)
-    def __init__(self):
-        self.graph = Digraph('AST', node_attr={'shape': 'box', 'fontname': 'monospace'})
-        self.node_id = 0
 
-    def add_node(self, label):
-        node_name = f"node{self.node_id}"
-        self.graph.node(node_name, label)
-        self.node_id += 1
-        return node_name
-
-    def visit_program(self, node):
-        program_node = self.add_node("Program")
-        for stmt in node.statements:
-            child = stmt.accept(self)
-            if child: # 确保子节点有效
-                self.graph.edge(program_node, child)
-        return program_node
-
-    def visit_let_statement(self, node):
-        label = f"Let: {node.name.value}"
-        if node.mutable: label = f"Let mut: {node.name.value}"
-        let_node = self.add_node(label)
-        if node.value:
-            value_node = node.value.accept(self)
-            if value_node: self.graph.edge(let_node, value_node, label="value")
-        if node.type_info:
-            type_node = node.type_info.accept(self)
-            if type_node: self.graph.edge(let_node, type_node, label="type")
-        return let_node
-
-    def visit_return_statement(self, node):
-        ret_node = self.add_node("Return")
-        if node.return_value:
-            value_node = node.return_value.accept(self)
-            if value_node: self.graph.edge(ret_node, value_node)
-        return ret_node
-
-    def visit_expression_statement(self, node):
-        expr_node = self.add_node("ExpressionStmt")
-        if node.expression:
-            child_node = node.expression.accept(self)
-            if child_node: self.graph.edge(expr_node, child_node)
-        return expr_node
-
-    def visit_block_statement(self, node):
-        block_node = self.add_node("Block")
-        for stmt in node.statements:
-            child = stmt.accept(self)
-            if child: self.graph.edge(block_node, child)
-        return block_node
-
-    def visit_function_declaration(self, node):
-        func_label = f"Function: {node.name.value}"
-        func_node = self.add_node(func_label)
-        for param in node.parameters:
-            param_node = param.accept(self)
-            if param_node: self.graph.edge(func_node, param_node, label="param")
-        if node.body:
-            body_node = node.body.accept(self)
-            if body_node: self.graph.edge(func_node, body_node, label="body")
-        if node.return_type:
-            return_type_node = node.return_type.accept(self)
-            if return_type_node: self.graph.edge(func_node, return_type_node, label="return_type")
-        return func_node
-
-    def visit_parameter_node(self, node):
-        label = f"Param: {node.name.value}"
-        if node.mutable: label = f"Param mut: {node.name.value}"
-        param_node = self.add_node(label)
-        if node.type_info:
-            type_node = node.type_info.accept(self)
-            if type_node: self.graph.edge(param_node, type_node, label="type")
-        return param_node
-
-    def visit_if_statement(self, node):
-        if_node = self.add_node("IfStatement")
-        cond_node = node.condition.accept(self)
-        if cond_node: self.graph.edge(if_node, cond_node, label="condition")
-        cons_node = node.consequence.accept(self)
-        if cons_node: self.graph.edge(if_node, cons_node, label="then")
-        if node.alternative:
-            alt_node = node.alternative.accept(self)
-            if alt_node: self.graph.edge(if_node, alt_node, label="else")
-        return if_node
-
-    def visit_identifier(self, node):
-        return self.add_node(f"Identifier: {node.value}")
-
-    def visit_integer_literal(self, node):
-        return self.add_node(f"Integer: {node.value}")
-
-    def visit_boolean_literal(self, node):
-        return self.add_node(f"Boolean: {str(node.value)}")
-
-    def visit_prefix_expression(self, node):
-        label = f"Prefix: {node.operator}"
-        prefix_node = self.add_node(label)
-        right_node = node.right.accept(self)
-        if right_node: self.graph.edge(prefix_node, right_node, label="right")
-        return prefix_node
-
-    def visit_infix_expression(self, node):
-        label = f"Infix: {node.operator}"
-        infix_node = self.add_node(label)
-        left_node = node.left.accept(self)
-        right_node = node.right.accept(self)
-        if left_node: self.graph.edge(infix_node, left_node, label="left")
-        if right_node: self.graph.edge(infix_node, right_node, label="right")
-        return infix_node
-
-    def visit_call_expression(self, node):
-        call_node = self.add_node("Call")
-        func_node = node.function.accept(self)
-        if func_node: self.graph.edge(call_node, func_node, label="function")
-        for i, arg in enumerate(node.arguments):
-            arg_node = arg.accept(self)
-            if arg_node: self.graph.edge(call_node, arg_node, label=f"arg{i}")
-        return call_node
-
-    def visit_type_node(self, node):
-        return self.add_node(f"Type: {node.name}")
-
-    def visit_while_statement(self, node):
-        while_node = self.add_node("While")
-        cond_node = node.condition.accept(self)
-        if cond_node: self.graph.edge(while_node, cond_node, label="condition")
-        body_node = node.body.accept(self)
-        if body_node: self.graph.edge(while_node, body_node, label="body")
-        return while_node
-    
-    def visit_for_statement(self, node):
-        for_node = self.add_node(f"For: {node.variable.value}")
-        iterator_node = node.iterator.accept(self)
-        if iterator_node: self.graph.edge(for_node, iterator_node, label="in")
-        body_node = node.body.accept(self)
-        if body_node: self.graph.edge(for_node, body_node, label="body")
-        return for_node
-    
-    def visit_assignment_statement(self, node):
-        assign_node = self.add_node("Assign")
-        target_node = node.target.accept(self)
-        if target_node: self.graph.edge(assign_node, target_node, label="target")
-        value_node = node.value.accept(self)
-        if value_node: self.graph.edge(assign_node, value_node, label="value")
-        return assign_node
-
-    def visit_loop_statement(self, node):
-        loop_node = self.add_node("Loop")
-        if node.body:
-            body_node = node.body.accept(self)
-            if body_node: self.graph.edge(loop_node, body_node, label="body")
-        return loop_node
-
-    def visit_break_statement(self, node):
-        return self.add_node("Break")
-
-    def visit_continue_statement(self, node):
-        return self.add_node("Continue")
-
-    def render_to_memory(self):
-        try:
-            # 使用辅助函数获取基准路径
-            base_dir = get_base_path()
-
-            # 渲染图到二进制数据（而不是文件）
-            tmp_filepath = os.path.join(base_dir, "ast_tmp_output")
-            tmp_filepath_dot = tmp_filepath + ".dot"
-            tmp_filepath_png = tmp_filepath + ".png"
-
-            self.graph.save(tmp_filepath_dot)
-
-            dot_exe_path = os.path.join(base_dir, 'graphviz_bin', 'dot.exe')
-            subprocess.run([
-                dot_exe_path,
-                "-Tpng",
-                tmp_filepath_dot,
-                "-o",
-                tmp_filepath_png
-            ], check=True)
-
-            with open(tmp_filepath_png, "rb") as f:
-                img_bytes = f.read()
-
-            os.remove(tmp_filepath_dot)
-            os.remove(tmp_filepath_png)
-
-            return img_bytes
-        except Exception as e:
-            print(f"AST图像错误: {e}")
-            # Potentially return a placeholder image or raise the error
-            # For GUI, it's better to show an error message to the user
-            messagebox.showerror("AST图像错误", f"Graphviz渲染失败: {e}\n请确保Graphviz已正确安装并添加到系统PATH。")
-            return None
 
 
 class LexerApp:
     def __init__(self, master):
         self.master = master
-        master.title("Rust 编译器 (词法/语法/语义分析 + IR/汇编生成 + 自动链接wsl执行/AST图像生成)") # 更新标题
+        master.title("Rust 编译器 (词法/语法/语义分析 + IR/汇编生成 + 两种方法自动汇编链接执行/AST图像生成)") # 更新标题
         master.geometry("1000x700")
 
         default_font = tkFont.nametofont("TkDefaultFont")
@@ -288,29 +93,55 @@ class LexerApp:
             error_message = f"读取 'test.rs' 时发生错误: {e}"
             self.input_text.insert(tk.END, error_message)
             messagebox.showerror("文件读取错误", error_message)
+            
 
-        
-        # 按钮顺序已调整，并添加了语义分析按钮
-        lex_button = tk.Button(left_frame, text="1. 进行词法分析", command=self.analyze_code, font=default_font, pady=5)
-        lex_button.pack(pady=(2,1), fill=tk.X)
-        
-        parse_button = tk.Button(left_frame, text="2. 进行语法分析", command=self.parse_syntax, font=default_font, pady=5)
-        parse_button.pack(pady=(2, 1), fill=tk.X)
-        
-        semantic_button = tk.Button(left_frame, text="3. 进行语义分析与四元式生成", command=self.perform_semantic_analysis_and_ir, font=default_font, pady=5)
-        semantic_button.pack(pady=(2, 1), fill=tk.X)
+        # --- 新的按钮布局 ---
+        # 创建一个总的按钮容器
+        button_container = tk.Frame(left_frame)
+        button_container.pack(fill=tk.X, pady=5, padx=2)
 
-        asm_button = tk.Button(left_frame, text="4. 生成汇编代码", command=self.perform_assembly_generation,font=default_font, pady=5)
-        asm_button.pack(pady=(2, 1), fill=tk.X)
+        # -- 第一行按钮 --
+        frame_row1 = tk.Frame(button_container)
+        frame_row1.pack(fill=tk.X, expand=True)
 
-        run_button = tk.Button(left_frame, text="5. 汇编、链接并运行", command=self.assemble_link_and_run,font=default_font, pady=5)
-        run_button.pack(pady=(2, 1), fill=tk.X)
-        
-        ast_button = tk.Button(left_frame, text="6. 生成 AST 图像", command=self.show_ast, font=default_font, pady=5)
-        ast_button.pack(pady=(2, 1), fill=tk.X)
+        lex_button = tk.Button(frame_row1, text="1. 词法分析", command=self.analyze_code, font=default_font)
+        lex_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
 
+        parse_button = tk.Button(frame_row1, text="2. 语法分析", command=self.parse_syntax, font=default_font)
+        parse_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
 
+        # -- 第二行按钮 --
+        frame_row2 = tk.Frame(button_container)
+        frame_row2.pack(fill=tk.X, expand=True)
 
+        semantic_button = tk.Button(frame_row2, text="3. 语义分析和 IR 生成 ", command=self.perform_semantic_analysis_and_ir, font=default_font)
+        semantic_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
+
+        asm_button = tk.Button(frame_row2, text="4. 生成NASM汇编代码", command=self.perform_assembly_generation, font=default_font)
+        asm_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
+
+        # -- 第三行按钮 --
+        frame_row3 = tk.Frame(button_container)
+        frame_row3.pack(fill=tk.X, expand=True)
+
+        run_button = tk.Button(frame_row3, text="5. 汇编、链接并运行", command=self.assemble_link_and_run, font=default_font)
+        run_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
+
+        ast_button = tk.Button(frame_row3, text="6. 生成AST节点图像 ", command=self.show_ast, font=default_font)
+        ast_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
+
+        # 在左侧按钮面板的 "5. 汇编、链接并运行" 按钮下方，添加汇编选项
+        # 首先，定义一个StringVar来存储选项
+        self.compile_method = tk.StringVar(value="local") # 默认选中 "local"
+
+        # 创建一个Frame来容纳单选按钮
+        compile_choice_frame = ttk.LabelFrame(left_frame, text="汇编和链接环境选择")
+        compile_choice_frame.pack(pady=2, padx=5, fill=tk.X)
+
+        # 添加两个单选按钮
+        ttk.Radiobutton(compile_choice_frame, text="本地工具 (nasm + GoLink)", variable=self.compile_method, value="local").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        ttk.Radiobutton(compile_choice_frame, text="WSL (nasm + gcc)", variable=self.compile_method, value="wsl").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        # --- 按钮布局结束 ---
 
         right_notebook = ttk.Notebook(self.m)
         self.m.add(right_notebook, width=550)
@@ -369,7 +200,7 @@ class LexerApp:
         # 2. 使用您已有的方法创建可滚动的文本框
         self.assembly_text = self.create_scrollable_text(assembly_tab, font=text_font, wrap=tk.NONE)
 
-        assembly_output_label = tk.Label(assembly_tab, text="链接WSL汇编并执行:", font=default_font)
+        assembly_output_label = tk.Label(assembly_tab, text="两种方法汇编、链接并执行:", font=default_font)
         assembly_output_label.pack(pady=(5, 5), fill=tk.X, padx=5)
         self.run_output_text = self.create_scrollable_text(assembly_tab, font=text_font)
 
@@ -387,10 +218,9 @@ class LexerApp:
         self.ast_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
         self.ast_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.ast_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.ast_image_label = tk.Label(self.ast_canvas, bg="white")
-        # 使用 'nw' (north-west) anchor 以便滚动区域计算正确
-        self.ast_canvas.create_window((0, 0), window=self.ast_image_label, anchor='nw')
-        self.ast_image_label.bind('<Configure>', lambda e: self.ast_canvas.configure(scrollregion=self.ast_canvas.bbox("all")))
+        self.ast_canvas.bind("<ButtonPress-1>", self.on_drag_start)
+        self.ast_canvas.bind("<B1-Motion>", self.on_drag_motion)
+        self.ast_canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         zoom_frame = tk.Frame(ast_tab)
         zoom_frame.pack(pady=(5,5))
         self.zoom_in_button = tk.Button(zoom_frame, text="放大 +", command=self.zoom_in_ast)
@@ -600,80 +430,116 @@ class LexerApp:
             messagebox.showerror("错误", "没有可用的汇编代码。请先成功生成汇编代码。")
             self.run_output_text.config(state=tk.DISABLED)
             return
+        
+        base_dir = get_base_path()
+        output_dir = os.path.join(base_dir, "assembly_result")
+        os.makedirs(output_dir, exist_ok=True)
+        asm_path = os.path.join(output_dir, "output.asm")
+        
+        with open(asm_path, "w", encoding="utf-8") as f:
+            f.write(asm_code)
+        
+        self.run_output_text.insert(tk.END, f"输出目录: {output_dir}\n")
+        self.run_output_text.insert(tk.END, f"汇编和链接方式: {'本地工具' if self.compile_method.get() == 'local' else 'WSL'}\n")
+        self.run_output_text.insert(tk.END, f"程序执行环境: {'Windows' if self.compile_method.get() == 'local' else 'Linux'}\n\n")
+
+        method = self.compile_method.get()
 
         try:
-            # 2. 定义并创建输出目录
-            base_dir = get_base_path()
-            output_dir = os.path.join(base_dir, "assembly_result")
-            os.makedirs(output_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
+            if method == 'local':
+                # --- 本地工具执行逻辑 ---
+                tools_dir = os.path.join(base_dir, "compiler_tools")
+                nasm_path = os.path.join(tools_dir, "nasm.exe")
+                linker_path = os.path.join(tools_dir, "GoLink.exe")
+                obj_path = os.path.join(output_dir, "output.obj")
+                exe_path = os.path.join(output_dir, "program.exe")
 
-            # 定义 Windows 平台下的文件路径
-            asm_path_win = os.path.join(output_dir, "output.asm")
-            obj_path_win = os.path.join(output_dir, "output.o")
-            exe_path_win = os.path.join(output_dir, "program")  # 在 WSL 中无 .exe 后缀
+                if not os.path.exists(nasm_path) or not os.path.exists(linker_path):
+                    messagebox.showerror("工具未找到", f"未在 {tools_dir} 文件夹中找到 nasm.exe 或 GoLink.exe。")
+                    return
 
-            # 写入汇编文件
-            with open(asm_path_win, "w") as f:
-                f.write(asm_code)
+                self.run_output_text.insert(tk.END, "1. 正在通过本地 NASM 汇编...\n")
+                nasm_cmd = [nasm_path, "-f", "win64", "-o", obj_path, asm_path]
+                nasm_proc = subprocess.run(nasm_cmd, capture_output=True, text=True, encoding='utf-8')
+                if nasm_proc.returncode != 0:
+                    self.run_output_text.insert(tk.END, f"汇编失败！\n错误:\n{nasm_proc.stderr}")
+                    return
 
-            # 3. 定义一个辅助函数来转换路径
-            def win_path_to_wsl(path):
-                path = path.replace('\\', '/')
-                drive, path_no_drive = os.path.splitdrive(path)
-                drive_letter = drive.replace(':', '').lower()
-                return f"/mnt/{drive_letter}{path_no_drive}"
+                self.run_output_text.insert(tk.END, "2. 正在通过 GoLink 链接...\n")
+                # 注意: GoLink 可能需要 msvcrt.dll，如果程序有C库函数调用的话。对于纯汇编，kernel32.dll通常足够
+                link_cmd = [linker_path, "/console", "/entry", "main", "/fo", exe_path, obj_path, "kernel32.dll"]
+                link_proc = subprocess.run(link_cmd, capture_output=True, text=True, encoding='utf-8')
+                if "error" in link_proc.stdout.lower() or link_proc.returncode != 0:
+                    self.run_output_text.insert(tk.END, f"链接失败！\n错误:\n{link_proc.stdout}{link_proc.stderr}")
+                    return
 
-            # 4. 转换路径以在 WSL 中使用
-            asm_path_wsl = win_path_to_wsl(asm_path_win)
-            obj_path_wsl = win_path_to_wsl(obj_path_win)
-            exe_path_wsl = win_path_to_wsl(exe_path_win)
+                self.run_output_text.insert(tk.END, "3. 正在运行本地程序 (.exe)...\n\n")
+                run_proc = subprocess.run([exe_path], capture_output=True, text=True) # text=True for auto-decoding
+                
+                self.run_output_text.insert(tk.END, f"--- 程序输出 ---\n{run_proc.stdout}\n")
+                if run_proc.stderr:
+                    self.run_output_text.insert(tk.END, f"--- 错误输出 ---\n{run_proc.stderr}\n")
+                self.run_output_text.insert(tk.END, f"--- 结果 ---\n程序退出码: {run_proc.returncode}\n")
 
-            # 5. 构建并执行 WSL 命令
-            self.run_output_text.insert(tk.END, f"输出目录: {output_dir}\n\n")
-            self.run_output_text.insert(tk.END, "1. 正在通过 WSL 汇编 (NASM)...\n")
+            elif method == 'wsl':
+                # --- WSL 执行逻辑 ---
+                # 定义一个辅助函数来转换路径
+                def win_path_to_wsl(path):
+                    path = path.replace('\\', '/')
+                    drive, path_no_drive = os.path.splitdrive(path)
+                    drive_letter = drive.replace(':', '').lower()
+                    return f"/mnt/{drive_letter}{path_no_drive}"
 
-            # 命令：wsl nasm -f elf64 -o /mnt/.../output.o /mnt/.../output.asm
-            nasm_cmd = ["wsl", "nasm", "-f", "elf64", "-o", obj_path_wsl, asm_path_wsl]
-            #nasm_proc = subprocess.run(nasm_cmd, capture_output=True, text=True, encoding='utf-8')
-            nasm_proc = subprocess.run(nasm_cmd, capture_output=True)
-            nasm_stderr = nasm_proc.stderr.decode('utf-8', errors='replace')
+                # 转换路径以在 WSL 中使用
+                asm_path_wsl = win_path_to_wsl(asm_path)
+                obj_path_wsl = f"{win_path_to_wsl(output_dir)}/output.o"
+                exe_path_wsl = f"{win_path_to_wsl(output_dir)}/program"
 
-            if nasm_proc.returncode != 0:
-                self.run_output_text.insert(tk.END, f"汇编失败！\nWSL 错误:\n{nasm_stderr}")
-                return
+                # 构建并执行 WSL 命令
+                self.run_output_text.insert(tk.END, "1. 正在通过 WSL 汇编 (NASM)...\n")
 
-            self.run_output_text.insert(tk.END, "2. 正在通过 WSL 链接 (GCC)...\n")
-            # 命令：wsl gcc -no-pie -o /mnt/.../program /mnt/.../output.o
-            gcc_cmd = ["wsl", "gcc", "-no-pie", "-o", exe_path_wsl, obj_path_wsl]
-            #gcc_proc = subprocess.run(gcc_cmd, capture_output=True, text=True, encoding='utf-8')
-            # Run in binary mode, then decode manually
-            gcc_proc = subprocess.run(gcc_cmd, capture_output=True)
-            gcc_stderr = gcc_proc.stderr.decode('utf-8', errors='replace')
+                # 命令：wsl nasm -f elf64 -o /mnt/.../output.o /mnt/.../output.asm
+                nasm_cmd = ["wsl", "nasm", "-f", "elf64", "-o", obj_path_wsl, asm_path_wsl]
+                #nasm_proc = subprocess.run(nasm_cmd, capture_output=True, text=True, encoding='utf-8')
+                nasm_proc = subprocess.run(nasm_cmd, capture_output=True)
+                nasm_stderr = nasm_proc.stderr.decode('utf-8', errors='replace')
 
-            if gcc_proc.returncode != 0:
-                self.run_output_text.insert(tk.END, f"链接失败！\nWSL 错误:\n{gcc_stderr}")
-                return
+                if nasm_proc.returncode != 0:
+                    self.run_output_text.insert(tk.END, f"汇编失败！\nWSL 错误:\n{nasm_stderr}")
+                    return
 
-            self.run_output_text.insert(tk.END, "3. 正在通过 WSL 运行程序...\n\n")
-            self.run_output_text.insert(tk.END, "--- 程序输出 ---\n")
+                self.run_output_text.insert(tk.END, "2. 正在通过 WSL 链接 (GCC)...\n")
+                # 命令：wsl gcc -no-pie -o /mnt/.../program /mnt/.../output.o
+                gcc_cmd = ["wsl", "gcc", "-no-pie", "-o", exe_path_wsl, obj_path_wsl]
+                #gcc_proc = subprocess.run(gcc_cmd, capture_output=True, text=True, encoding='utf-8')
+                # Run in binary mode, then decode manually
+                gcc_proc = subprocess.run(gcc_cmd, capture_output=True)
+                gcc_stderr = gcc_proc.stderr.decode('utf-8', errors='replace')
 
-            # 运行可执行文件：wsl /mnt/.../program
-            #run_proc = subprocess.run(["wsl", exe_path_wsl], capture_output=True, text=True, encoding='utf-8')
-            # Run in binary mode, then decode manually
-            run_proc = subprocess.run(["wsl", exe_path_wsl], capture_output=True)
-            run_stdout = run_proc.stdout.decode('UTF-16LE', errors='replace')
-            run_stderr = run_proc.stderr.decode('UTF-16LE', errors='replace')
+                if gcc_proc.returncode != 0:
+                    self.run_output_text.insert(tk.END, f"链接失败！\nWSL 错误:\n{gcc_stderr}")
+                    return
 
-            if run_proc.stdout:
-                self.run_output_text.insert(tk.END, f"标准输出:\n{run_stdout}\n")
-            if run_proc.stderr and run_proc.stderr!=b'w\x00s\x00l\x00:\x00 \x00\xc0hKm0R \x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00 \x00\xe3N\x06tM\x91n\x7f\x0c\xffFO*g\\\x95\xcfP0R \x00W\x00S\x00L\x00\x020N\x00A\x00T\x00 \x00!j\x0f_\x0bN\x84v \x00W\x00S\x00L\x00 \x00\rN/e\x01c \x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00 \x00\xe3N\x06t\x020\r\x00\n\x00':
-                self.run_output_text.insert(tk.END, f"标准错误:\n{run_stderr}\n")
+                self.run_output_text.insert(tk.END, "3. 正在通过 WSL 运行程序...\n\n")
+                self.run_output_text.insert(tk.END, "--- 程序输出 ---\n")
 
-            self.run_output_text.insert(tk.END, f"--- 结果 ---\n程序退出码: {run_proc.returncode}\n")
+                # 运行可执行文件：wsl /mnt/.../program
+                #run_proc = subprocess.run(["wsl", exe_path_wsl], capture_output=True, text=True, encoding='utf-8')
+                # Run in binary mode, then decode manually
+                run_proc = subprocess.run(["wsl", exe_path_wsl], capture_output=True)
+                run_stdout = run_proc.stdout.decode('UTF-16LE', errors='replace')
+                run_stderr = run_proc.stderr.decode('UTF-16LE', errors='replace')
+
+                if run_proc.stdout:
+                    self.run_output_text.insert(tk.END, f"标准输出:\n{run_stdout}\n")
+                if run_proc.stderr and run_proc.stderr!=b'w\x00s\x00l\x00:\x00 \x00\xc0hKm0R \x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00 \x00\xe3N\x06tM\x91n\x7f\x0c\xffFO*g\\\x95\xcfP0R \x00W\x00S\x00L\x00\x020N\x00A\x00T\x00 \x00!j\x0f_\x0bN\x84v \x00W\x00S\x00L\x00 \x00\rN/e\x01c \x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00 \x00\xe3N\x06t\x020\r\x00\n\x00':
+                    self.run_output_text.insert(tk.END, f"标准错误:\n{run_stderr}\n")
+
+                self.run_output_text.insert(tk.END, f"--- 结果 ---\n程序退出码: {run_proc.returncode}\n")
 
         except FileNotFoundError:
             messagebox.showerror("命令未找到",
-                                 "无法执行 'wsl' 命令。请确保：\n1. WSL 已正确安装。\n2. 在 WSL 中已安装 nasm 和 gcc。\n3. Python 脚本有权限执行子进程。")
+                                 "无法执行 'wsl' 命令。请确保：\n1. WSL 已正确安装。\n2. 在 WSL 中已安装 nasm 和 gcc,或选择本地工具。\n3. Python 脚本有权限执行子进程。")
         except Exception as e:
             self.run_output_text.insert(tk.END, f"发生意外错误: {e}\n")
         finally:
@@ -681,30 +547,20 @@ class LexerApp:
 
     def display_ast_image(self):
         if self.ast_image_original is None:
-            self.ast_image_label.config(image='')
-            self.tk_ast_image = None # 清除引用
+            self.ast_canvas.delete("all")
+            self.tk_ast_image = None
             return
 
         width, height = self.ast_image_original.size
-        new_width = int(width * self.ast_zoom_ratio)
-        new_height = int(height * self.ast_zoom_ratio)
-        
-        # 避免尺寸过小导致错误
-        if new_width <= 0 or new_height <= 0:
-             # 可以选择不显示警告，或者让缩放比例有个下限
-             # messagebox.showwarning("缩放警告", "图像已缩至最小。")
-             if self.ast_zoom_ratio < 0.1: self.ast_zoom_ratio = 0.1 # 最小缩放比例
-             new_width = int(width * self.ast_zoom_ratio)
-             new_height = int(height * self.ast_zoom_ratio)
-             if new_width <= 0 or new_height <= 0: return # 再次检查
+        new_width = max(1, int(width * self.ast_zoom_ratio))
+        new_height = max(1, int(height * self.ast_zoom_ratio))
 
-        try:
-            resized_image = self.ast_image_original.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            self.tk_ast_image = ImageTk.PhotoImage(resized_image)
-            self.ast_image_label.config(image=self.tk_ast_image)
-        except Exception as e:
-            print(f"调整或显示AST图像时出错: {e}")
-            messagebox.showerror("图像显示错误", f"调整或显示AST图像时出错: {e}")
+        resized_image = self.ast_image_original.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        self.tk_ast_image = ImageTk.PhotoImage(resized_image)
+
+        self.ast_canvas.delete("all")
+        self.ast_canvas.create_image(0, 0, anchor='nw', image=self.tk_ast_image)
+        self.ast_canvas.config(scrollregion=self.ast_canvas.bbox("all"))
 
 
     def zoom_in_ast(self):
@@ -724,12 +580,28 @@ class LexerApp:
         else:
             messagebox.showinfo("缩放", "请先生成 AST 图像。")
 
+    def on_drag_start(self, event):
+        """记录拖拽开始的位置"""
+        self.ast_canvas.scan_mark(event.x, event.y)
+
+    def on_drag_motion(self, event):
+        """根据鼠标移动的距离来拖拽画布"""
+        self.ast_canvas.scan_dragto(event.x, event.y, gain=1)
+
+    def on_mouse_wheel(self, event):
+        """处理鼠标滚轮事件以进行缩放"""
+        # 在 Windows 和大多数 Linux 系统上，event.delta 是一个表示滚动幅度的值
+        if event.delta > 0:
+            self.zoom_in_ast()
+        elif event.delta < 0:
+            self.zoom_out_ast()
+
 
     def show_ast(self):
         if self.ast_root_for_analysis is None:
             source_code_present = self.input_text.get("1.0", tk.END).strip()
 
-            self.ast_image_label.config(image='')  # 清除旧图
+            self.ast_canvas.delete("all")  # 清除旧图
             self.ast_image_original = None
             self.tk_ast_image = None
 
@@ -746,7 +618,7 @@ class LexerApp:
         try:
             drawer = ASTGraphvizDrawer()
             self.ast_root_for_analysis.accept(drawer) # 使用已存储的AST
-            img_bytes = drawer.render_to_memory()
+            img_bytes = drawer.render_to_memory(get_base_path())
 
             if img_bytes is None: # 如果 render_to_memory 返回 None (例如Graphviz错误)
                 return # 错误消息已由 drawer 显示
@@ -764,5 +636,4 @@ class LexerApp:
 if __name__ == "__main__":
     root = tk.Tk()
     app = LexerApp(root)
-
     root.mainloop()

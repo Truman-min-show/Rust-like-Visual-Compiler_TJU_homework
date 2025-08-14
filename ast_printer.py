@@ -158,7 +158,6 @@ class ASTPrinter(Visitor):
         self.indent_level -= 1
 
     def visit_assignment_statement(self, node: AssignmentStatement):
-        # target 节点可以�? Identifier, IndexExpression, AccessExpression �?
         target_str = f"'{node.target.value}'" if isinstance(node.target, Identifier) else "[Complex Target]"
         self._print(f"AssignmentStatement(target={target_str})")
         self.indent_level += 1
