@@ -373,6 +373,19 @@ class LexerApp:
                     if quadruples:
                         for i, quad in enumerate(quadruples):
                             self.ir_table.insert('', 'end', values=(f"{i:03d}", str(quad)))
+                        # --- 新增代码：将四元式保存到文件 ---
+                        base_dir = get_base_path()
+                        output_dir = os.path.join(base_dir, "assembly_result")
+                        os.makedirs(output_dir, exist_ok=True)
+                        ir_filepath = os.path.join(output_dir, "intermediate_representation.txt")
+
+                        with open(ir_filepath, "w", encoding="utf-8") as f:
+                            f.write("--- Intermediate Representation (Quadruples) ---\n")
+                            for i, quad in enumerate(quadruples):
+                                f.write(f"{i:03d}: {str(quad)}\n")
+
+                        messagebox.showinfo("文件已保存", f"中间代码已成功保存到:\n{ir_filepath}")
+                        # --- 新增代码结束 ---
                     else:
                         self.ir_table.insert('', 'end', values=('', '未生成中间代码。(可能是空程序或IR生成器未对所有情况处理)。\n'))
                 except Exception as e_ir:
@@ -408,6 +421,17 @@ class LexerApp:
 
             if assembly_code:
                 self.assembly_text.insert(tk.END, assembly_code)
+                # --- 新增代码：将汇编代码保存到文件 ---
+                base_dir = get_base_path()
+                output_dir = os.path.join(base_dir, "assembly_result")
+                os.makedirs(output_dir, exist_ok=True)
+                asm_filepath = os.path.join(output_dir, "output.asm")
+
+                with open(asm_filepath, "w", encoding="utf-8") as f:
+                    f.write(assembly_code)
+
+                messagebox.showinfo("文件已保存", f"汇编代码已成功保存到:\n{asm_filepath}")
+                # --- 新增代码结束 ---
             else:
                 self.assembly_text.insert(tk.END, "未能生成汇编代码。\n")
         except Exception as e:
@@ -430,15 +454,23 @@ class LexerApp:
             messagebox.showerror("错误", "没有可用的汇编代码。请先成功生成汇编代码。")
             self.run_output_text.config(state=tk.DISABLED)
             return
-        
+
+        # --- 修改点：从文件读取汇编代码，而不是从文本框 ---
         base_dir = get_base_path()
         output_dir = os.path.join(base_dir, "assembly_result")
-        os.makedirs(output_dir, exist_ok=True)
         asm_path = os.path.join(output_dir, "output.asm")
-        
-        with open(asm_path, "w", encoding="utf-8") as f:
-            f.write(asm_code)
-        
+
+        try:
+            with open(asm_path, "r", encoding="utf-8") as f:
+                asm_code = f.read().strip()
+            if not asm_code:
+                raise FileNotFoundError # 如果文件是空的，也当作错误处理
+        except FileNotFoundError:
+            messagebox.showerror("错误", f"未找到或无法读取汇编文件:\n{asm_path}\n\n请先成功生成汇编代码 (步骤 4)。")
+            self.run_output_text.config(state=tk.DISABLED)
+            return
+        # --- 修改结束 ---
+
         self.run_output_text.insert(tk.END, f"输出目录: {output_dir}\n")
         self.run_output_text.insert(tk.END, f"汇编和链接方式: {'本地工具' if self.compile_method.get() == 'local' else 'WSL'}\n")
         self.run_output_text.insert(tk.END, f"程序运行环境: {'Windows' if self.compile_method.get() == 'local' else 'Linux'}\n\n")
